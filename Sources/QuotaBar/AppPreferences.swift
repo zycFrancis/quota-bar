@@ -273,8 +273,7 @@ final class AppPreferences: ObservableObject {
         keeperModels = Dictionary(
             uniqueKeysWithValues: savedModels.compactMap { key, value in
                 guard
-                    let name = key as? String,
-                    let provider = KeeperProvider(rawValue: name),
+                    let provider = KeeperProvider(rawValue: key),
                     let model = value as? String
                 else { return nil }
                 return (provider, model)

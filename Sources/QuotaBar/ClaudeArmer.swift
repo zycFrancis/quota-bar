@@ -200,10 +200,12 @@ enum ClaudeArmer {
         guard
             let clock = text.range(of: clockPattern, options: .regularExpression),
             let match = captureGroups(in: text[clock], pattern: clockPattern),
-            let hour = Int(match[1]),
-            let minute = Int(match[2])
+            match.count >= 2,
+            let hour = Int(match[0]),
+            let minute = Int(match[1])
         else { return nil }
-        let ampm = match[3]?.lowercased() ?? ""
+        // 可选的 am/pm 组未参与匹配时不会出现在结果数组里。
+        let ampm = match.count > 2 ? match[2].lowercased() : ""
 
         var calendar = Calendar(identifier: .gregorian)
         calendar.locale = Locale(identifier: "en_US_POSIX")
@@ -291,11 +293,12 @@ enum ClaudeArmer {
 
             let deadline = Date().addingTimeInterval(timeout)
             while process.isRunning, Date() < deadline {
-                Thread.sleep(forTimeInterval: 0.2)
+                // 异步上下文禁用 Thread.sleep；轮询间隔同样用 Task.sleep。
+                try? await Task.sleep(for: .milliseconds(200))
             }
             if process.isRunning {
                 process.terminate()
-                Thread.sleep(forTimeInterval: 1)
+                try? await Task.sleep(for: .seconds(1))
             }
             guard !process.isRunning else {
                 return RunResult(

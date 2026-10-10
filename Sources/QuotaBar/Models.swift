@@ -524,6 +524,7 @@ struct ProviderSnapshot: Identifiable, Equatable, Sendable {
     var resetPrediction: CodexResetPrediction? = nil
     /// 窗口接力状态脚注（未启用时为 nil）。
     var keeperNote: String? = nil
+    var keeperNoteHasError: Bool = false
 
     static func placeholder(_ id: ProviderID) -> ProviderSnapshot {
         ProviderSnapshot(

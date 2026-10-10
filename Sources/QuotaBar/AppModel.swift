@@ -408,7 +408,9 @@ final class AppModel: ObservableObject {
         keeper.ingest(snapshots: merged)
         let keeperNotes = keeper.notes(language: currentLanguage)
         for index in merged.indices {
-            merged[index].keeperNote = keeperNotes[merged[index].id]
+            let note = keeperNotes[merged[index].id]
+            merged[index].keeperNote = note?.text
+            merged[index].keeperNoteHasError = note?.isError ?? false
         }
 
         snapshots = merged
