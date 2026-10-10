@@ -4,53 +4,6 @@ import Combine
 import QuartzCore
 import SwiftUI
 
-final class FloatingPanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-
-    /// How close an edge has to be before the panel jumps flush against it.
-    private let snapDistance: CGFloat = 14
-
-    override func constrainFrameRect(
-        _ frameRect: NSRect,
-        to screen: NSScreen?
-    ) -> NSRect {
-        let target = screen
-            ?? NSScreen.screens.first { $0.frame.intersects(frameRect) }
-            ?? NSScreen.main
-        guard let target else { return frameRect }
-
-        // AppKit would otherwise keep a titled window below the menu bar, which
-        // is exactly what stops the panel reaching the top of the display.
-        let full = target.frame
-        let visible = target.visibleFrame
-        var frame = frameRect
-
-        let candidateX: [CGFloat] = [full.minX, visible.minX, visible.maxX - frame.width, full.maxX - frame.width]
-        for candidate in candidateX where abs(frame.minX - candidate) < snapDistance {
-            frame.origin.x = candidate
-            break
-        }
-        let candidateY: [CGFloat] = [full.minY, visible.minY, visible.maxY - frame.height, full.maxY - frame.height]
-        for candidate in candidateY where abs(frame.origin.y - candidate) < snapDistance {
-            frame.origin.y = candidate
-            break
-        }
-
-        // Stay fully on the display, but allow every edge including the strip
-        // behind the menu bar.
-        frame.origin.x = min(
-            max(frame.origin.x, full.minX),
-            max(full.minX, full.maxX - frame.width)
-        )
-        frame.origin.y = min(
-            max(frame.origin.y, full.minY),
-            max(full.minY, full.maxY - frame.height)
-        )
-        return frame
-    }
-}
-
 final class MenuBarMarqueeView: NSView {
     private let iconView = NSImageView()
     private let textClipView = NSView()
@@ -183,19 +136,12 @@ final class MenuBarMarqueeView: NSView {
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let model = AppModel()
-    private var panel: FloatingPanel?
-    /// Set while the app itself is moving the panel so programmatic layout
-    /// changes are not mistaken for the user repositioning it.
-    private var isAdjustingPanel = false
-    private var hostingView: NSHostingView<ContentView>?
-    private var panelContainer: NSView?
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
     /// 右键状态栏图标的纵向额度下拉面板。
     private var quotaPopover: NSPopover?
     /// 左键状态栏图标打开的独立设置窗口。
     private var settingsWindow: NSWindow?
-    private var toggleMenuItem: NSMenuItem?
     private var refreshMenuItem: NSMenuItem?
     private var updateMenuItem: NSMenuItem?
     private var quitMenuItem: NSMenuItem?
@@ -205,7 +151,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var monthlyMenuItem: NSMenuItem?
     private var snapshotObservation: AnyCancellable?
     private var quotaWindowObservation: AnyCancellable?
-    private var panelLayoutObservation: AnyCancellable?
     private var providerOrderObservation: AnyCancellable?
     private var hiddenProvidersObservation: AnyCancellable?
     private var menuBarDisplayObservation: AnyCancellable?
@@ -214,15 +159,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var screenParametersObserver: NSObjectProtocol?
     private var hotKeyRef: EventHotKeyRef?
     private var hotKeyHandlerRef: EventHandlerRef?
-    private var showPanelObserver: NSObjectProtocol?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // .regular：常规应用形态——Dock 图标、应用图标、系统菜单栏完整可用。
         NSApp.setActivationPolicy(.regular)
         makeMainMenu()
-        makePanel()
         makeStatusItem()
-        registerShowPanelHotKey()
         // 自动化入口：外部（AppleScript/终端）可通过分布式通知触发菜单弹出，
         // 便于自动化测试与无障碍脚本驱动。
         DistributedNotificationCenter.default().addObserver(
@@ -246,9 +188,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     func applicationWillTerminate(_ notification: Notification) {
         DistributedNotificationCenter.default().removeObserver(self)
-        if let showPanelObserver {
-            NotificationCenter.default.removeObserver(showPanelObserver)
-        }
         if let screenParametersObserver {
             NotificationCenter.default.removeObserver(screenParametersObserver)
         }
@@ -271,8 +210,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // 点 Dock 图标 = 弹出整个额度信息（与左键状态栏图标一致）。
         if let button = statusItem?.button {
             toggleQuotaPopover(from: button)
-        } else {
-            showPanel()
         }
         return true
     }
@@ -329,161 +266,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.mainMenu = mainMenu
     }
 
-    private func makePanel() {
-        let mode = model.preferences.panelLayout
-        let size = mode.clamp(
-            model.preferences.savedPanelSize(for: mode)
-                ?? mode.defaultSize(
-                    visibleProviderCount: model.preferences.visibleProviderOrder.count
-                )
-        )
-        let panel = FloatingPanel(
-            contentRect: NSRect(origin: .zero, size: size),
-            styleMask: [.titled, .fullSizeContentView, .nonactivatingPanel, .resizable],
-            backing: .buffered,
-            defer: false
-        )
-        panel.title = "Quota Bar"
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        // The panel always paints its own dark chrome, so pin AppKit to the dark
-        // appearance. Without this the panel inherits the system Light Mode and
-        // every label that relies on the default `.primary` colour draws black on
-        // the dark background, while the standard controls (segmented pickers,
-        // switches, text fields) render in their light style.
-        panel.appearance = NSAppearance(named: .darkAqua)
-        panel.hasShadow = true
-        // Above the menu bar so the panel stays readable when it is snapped to
-        // the very top of the display.
-        panel.level = .statusBar
-        panel.isFloatingPanel = true
-        panel.hidesOnDeactivate = false
-        panel.isMovableByWindowBackground = true
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
-        panel.standardWindowButton(.closeButton)?.isHidden = true
-        panel.standardWindowButton(.miniaturizeButton)?.isHidden = true
-        panel.standardWindowButton(.zoomButton)?.isHidden = true
-        panel.minSize = mode.minSize
-        panel.maxSize = mode.maxSize
-        panel.delegate = self
-        let hostingView = NSHostingView(
-            rootView: ContentView(
-                model: model,
-                onOpenSettings: { [weak self] tab in
-                    self?.openSettingsWindow(initialTab: tab)
-                },
-                onHideToMenuBar: { [weak self] in self?.collapsePanel() },
-                onResetGeometry: { [weak self] in self?.resetPanelGeometry() }
-            )
-        )
-        // A titled window hands SwiftUI a titlebar-sized top safe area, which
-        // is what pushed the one-line bar's content off centre.
-        hostingView.safeAreaRegions = []
-        hostingView.sizingOptions = []
-
-        // The hosting view deliberately is *not* the window's contentView. As
-        // the contentView of a resizable window it mirrors the SwiftUI content's
-        // min/max size onto the window, and measuring a root that contains a
-        // ScrollView re-enters the constraint pass — which AppKit turns into a
-        // fatal exception. A plain container sidesteps that; the panel already
-        // sets its own size limits.
-        let container = NSView(frame: NSRect(origin: .zero, size: size))
-        container.wantsLayer = true
-        container.layer?.cornerRadius = mode.cornerRadius
-        container.layer?.cornerCurve = .continuous
-        container.layer?.masksToBounds = true
-        hostingView.translatesAutoresizingMaskIntoConstraints = false
-        container.addSubview(hostingView)
-        NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            hostingView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            hostingView.topAnchor.constraint(equalTo: container.topAnchor),
-            hostingView.bottomAnchor.constraint(equalTo: container.bottomAnchor)
-        ])
-        panel.contentView = container
-        self.hostingView = hostingView
-        self.panelContainer = container
-
-        if let topLeft = model.preferences.savedPanelTopLeft() {
-            panel.setFrame(
-                NSRect(
-                    x: topLeft.x,
-                    y: topLeft.y - size.height,
-                    width: size.width,
-                    height: size.height
-                ),
-                display: false
-            )
-        } else if let screen = NSScreen.main {
-            let visible = screen.visibleFrame
-            panel.setFrameOrigin(
-                NSPoint(x: visible.maxX - size.width - 24, y: visible.maxY - size.height)
-            )
-        } else {
-            panel.center()
-        }
-        panel.orderFrontRegardless()
-        self.panel = panel
-
-        panelLayoutObservation = model.preferences.$panelLayout
-            .removeDuplicates()
-            .dropFirst()
-            .receive(on: RunLoop.main)
-            .sink { [weak self] mode in
-                self?.resizePanel(for: mode)
-            }
-    }
-
-    // MARK: - NSWindowDelegate
-
-    func windowDidMove(_ notification: Notification) {
-        rememberPanelOrigin()
-    }
-
-    func windowDidEndLiveResize(_ notification: Notification) {
-        rememberPanelSize()
-    }
-
-    private func rememberPanelOrigin() {
-        guard let panel, panel.isVisible, !isAdjustingPanel else { return }
-        model.preferences.setPanelTopLeft(Self.topLeft(of: panel.frame))
-    }
-
-    private func rememberPanelSize() {
-        guard let panel, panel.isVisible, !isAdjustingPanel else { return }
-        model.preferences.setPanelTopLeft(Self.topLeft(of: panel.frame))
-        model.preferences.setPanelSize(panel.frame.size, for: model.preferences.panelLayout)
-    }
-
-    private static func topLeft(of frame: NSRect) -> CGPoint {
-        CGPoint(x: frame.minX, y: frame.maxY)
-    }
-
-    private func resetPanelGeometry() {
-        model.preferences.resetPanelGeometry()
-        guard let panel, let screen = panel.screen ?? NSScreen.main else { return }
-        let mode = model.preferences.panelLayout
-        let size = mode.defaultSize(
-            visibleProviderCount: model.preferences.visibleProviderOrder.count
-        )
-        let visible = screen.visibleFrame
-        isAdjustingPanel = true
-        panel.setFrame(
-            NSRect(
-                x: visible.maxX - size.width - 24,
-                y: visible.maxY - size.height,
-                width: size.width,
-                height: size.height
-            ),
-            display: true,
-            animate: true
-        )
-        isAdjustingPanel = false
-        panel.invalidateShadow()
-    }
-
     private func makeStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         statusItem = item
@@ -498,14 +280,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
         let menu = NSMenu()
         menu.delegate = self
-        let toggle = NSMenuItem(
-            title: "",
-            action: #selector(togglePanel),
-            keyEquivalent: "q"
-        )
-        toggle.target = self
-        toggle.keyEquivalentModifierMask = [.command, .option]
-        menu.addItem(toggle)
         let settingsItem = NSMenuItem(
             title: model.language.text("设置…", "Settings…"),
             action: #selector(openSettingsFromMenu),
@@ -571,7 +345,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         quit.target = self
         menu.addItem(quit)
         statusMenu = menu
-        toggleMenuItem = toggle
         refreshMenuItem = refresh
         updateMenuItem = update
         quitMenuItem = quit
@@ -625,7 +398,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 guard let self else { return }
                 self.updateStatusItem(snapshots: self.model.snapshots)
                 self.updateMenuTitles()
-                self.resizePanel(for: self.model.preferences.panelLayout)
                 self.republishHUD()
             }
         menuBarDisplayObservation = model.preferences.$menuBarDisplayMode
@@ -647,9 +419,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     private func updateMenuTitles() {
         let language = model.language
-        toggleMenuItem?.title = panel?.isVisible == true
-            ? language.text("收起到菜单栏", "Collapse to menu bar")
-            : language.text("显示浮窗", "Show panel")
         refreshMenuItem?.title = language.text("立即刷新", "Refresh now")
         updateMenuItem?.title = {
             switch model.updateState {
@@ -777,15 +546,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
 
-    @objc private func togglePanel() {
-        guard let panel else { return }
-        if panel.isVisible {
-            collapsePanel()
-        } else {
-            showPanel()
-        }
-    }
-
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
         if NSApp.currentEvent?.type == .rightMouseUp {
             // 右键：标准系统菜单（白底实体菜单），含设置入口。
@@ -825,9 +585,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             onClose: { [weak self] in
                 self?.settingsWindow?.orderOut(nil)
             },
-            onResetGeometry: { [weak self] in
-                self?.resetPanelGeometry()
-            }
+            onResetGeometry: {}
         )
         let hosting = NSHostingView(rootView: content)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 620, height: 560),
@@ -896,101 +654,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
     }
 
-    private func collapsePanel() {
-        panel?.orderOut(nil)
-        updateMenuTitles()
-    }
-
-    @objc private func showPanel() {
-        panel?.orderFrontRegardless()
-        updateMenuTitles()
-    }
-
-    private func registerShowPanelHotKey() {
-        showPanelObserver = NotificationCenter.default.addObserver(
-            forName: .quotaBarShowPanel,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.showPanel()
-            }
-        }
-
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: OSType(kEventHotKeyPressed)
-        )
-        let handler: EventHandlerUPP = { _, event, _ in
-            guard let event else { return noErr }
-            var hotKeyID = EventHotKeyID()
-            let status = GetEventParameter(
-                event,
-                EventParamName(kEventParamDirectObject),
-                EventParamType(typeEventHotKeyID),
-                nil,
-                MemoryLayout<EventHotKeyID>.size,
-                nil,
-                &hotKeyID
-            )
-            guard status == noErr, hotKeyID.id == 1 else { return status }
-            DispatchQueue.main.async {
-                NotificationCenter.default.post(name: .quotaBarShowPanel, object: nil)
-            }
-            return noErr
-        }
-        InstallEventHandler(
-            GetApplicationEventTarget(),
-            handler,
-            1,
-            &eventType,
-            nil,
-            &hotKeyHandlerRef
-        )
-        let hotKeyID = EventHotKeyID(
-            signature: fourCharacterCode("QBAR"),
-            id: 1
-        )
-        RegisterEventHotKey(
-            UInt32(kVK_ANSI_Q),
-            UInt32(cmdKey | optionKey),
-            hotKeyID,
-            GetApplicationEventTarget(),
-            0,
-            &hotKeyRef
-        )
-    }
-
     private func fourCharacterCode(_ value: String) -> OSType {
         value.utf8.reduce(0) { ($0 << 8) + OSType($1) }
-    }
-
-    /// Resizes in place: the top edge and whichever side edge the panel is
-    /// parked against both stay put, so collapsing and expanding never walks
-    /// the panel across the screen.
-    private func resizePanel(for mode: PanelLayoutMode) {
-        guard let panel else { return }
-        let oldFrame = panel.frame
-        let newSize = mode.clamp(
-            model.preferences.savedPanelSize(for: mode)
-                ?? mode.defaultSize(
-                    visibleProviderCount: model.preferences.visibleProviderOrder.count
-                )
-        )
-        let newFrame = PanelGeometry.resized(
-            oldFrame,
-            to: newSize,
-            onScreen: panel.screen?.frame
-        )
-        isAdjustingPanel = true
-        panel.minSize = mode.minSize
-        panel.maxSize = mode.maxSize
-        panelContainer?.layer?.cornerRadius = mode.cornerRadius
-        panel.setFrame(newFrame, display: true, animate: true)
-        isAdjustingPanel = false
-        model.preferences.setPanelTopLeft(Self.topLeft(of: panel.frame))
-        panel.invalidateShadow()
-        updateMenuTitles()
     }
 
     @objc private func showFiveHourQuota() {
@@ -1140,8 +805,7 @@ enum QuotaBarApp {
         let application = NSApplication.shared
         let delegate = AppDelegate()
         application.delegate = delegate
-        // AppDelegate owns the panel and its settings overlay. A placeholder
-        // SwiftUI Settings scene can open an empty window at launch.
+        // AppDelegate owns the status item, popover and settings window.
         withExtendedLifetime(delegate) {
             application.run()
         }
