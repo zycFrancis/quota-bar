@@ -764,24 +764,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     private var statusImage: NSImage? {
-        // Swap the gauge for a warning as soon as any visible service drops to
-        // the configured threshold, so the menu bar is glanceable on its own.
-        let lowProviders = model.lowQuotaProviders
-        let name = lowProviders.isEmpty
-            ? "gauge.with.dots.needle.67percent"
-            : "gauge.with.dots.needle.0percent"
-        let image = NSImage(
-            systemSymbolName: name,
-            accessibilityDescription: "Quota Bar"
+        // 三环表盘图标，与 Dock 应用图标同款设计；
+        // 正常态为 template 单色（系统按菜单栏明暗自动着色），
+        // 任一可见套餐低于阈值时转为橙色警示（非 template）。
+        let isLow = !model.lowQuotaProviders.isEmpty
+        let image = StatusRingIcon.image(
+            size: 16,
+            color: isLow ? .systemOrange : .black
         )
-        guard !lowProviders.isEmpty else { return image }
-        // Status-item images are templates by default, which would drop the
-        // tint that makes the warning readable at a glance.
-        let tinted = image?.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(paletteColors: [.systemOrange])
-        )
-        tinted?.isTemplate = false
-        return tinted ?? image
+        image.isTemplate = !isLow
+        return image
     }
 
 
