@@ -74,6 +74,11 @@ final class AppPreferences: ObservableObject {
         didSet { defaults.set(popoverWidth, forKey: Keys.popoverWidth) }
     }
 
+    /// 菜单栏图标旁百分比数字的来源。
+    @Published var statusPercentSource: StatusPercentSource {
+        didSet { defaults.set(statusPercentSource.rawValue, forKey: Keys.statusPercentSource) }
+    }
+
     @Published var hudEnabled: Bool {
         didSet { defaults.set(hudEnabled, forKey: Keys.hudEnabled) }
     }
@@ -151,6 +156,7 @@ final class AppPreferences: ObservableObject {
         static let panelTopLeft = "panelTopLeft"
         static let panelOpacity = "panelOpacity"
         static let popoverWidth = "popoverWidth"
+        static let statusPercentSource = "statusPercentSource"
 
         static func panelSize(_ mode: PanelLayoutMode) -> String {
             "panelSize.\(mode.rawValue)"
@@ -192,6 +198,10 @@ final class AppPreferences: ObservableObject {
         popoverWidth = savedPopoverWidth == 0
             ? 340
             : min(max(savedPopoverWidth, 260), 560)
+
+        statusPercentSource = StatusPercentSource(
+            rawValue: defaults.string(forKey: Keys.statusPercentSource) ?? ""
+        ) ?? .auto
 
         if
             let raw = defaults.string(forKey: Keys.quotaWindow),

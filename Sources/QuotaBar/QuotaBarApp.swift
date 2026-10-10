@@ -461,17 +461,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
                 marquee.stop()
                 marquee.isHidden = true
             }
-            let headline = providers
-                .compactMap { provider in
-                    snapshots.first { $0.id == provider }
-                }
-                .compactMap { snapshot in
-                    MenuBarSummary.value(
-                        snapshot: snapshot,
-                        preference: model.preferences.quotaWindow
-                    )
-                }
-                .first { $0.hasSuffix("%") }
+            let source = model.preferences.statusPercentSource
+            let headline: String?
+            if let pinned = source.providerID,
+               let snapshot = snapshots.first(where: { $0.id == pinned }) {
+                headline = MenuBarSummary.value(
+                    snapshot: snapshot,
+                    preference: model.preferences.quotaWindow
+                )
+            } else if source == .none {
+                headline = nil
+            } else {
+                headline = providers
+                    .compactMap { provider in
+                        snapshots.first { $0.id == provider }
+                    }
+                    .compactMap { snapshot in
+                        MenuBarSummary.value(
+                            snapshot: snapshot,
+                            preference: model.preferences.quotaWindow
+                        )
+                    }
+                    .first { $0.hasSuffix("%") }
+            }
             statusItem?.button?.image = statusImage
             statusItem?.button?.title = headline ?? ""
             statusItem?.button?.toolTip = MenuBarSummary.accessibilityText(

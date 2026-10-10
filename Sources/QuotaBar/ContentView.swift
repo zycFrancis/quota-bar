@@ -657,6 +657,7 @@ struct SettingsPanelContent: View {
                 keeperSection
                 opacityRow
                 popoverWidthRow
+                statusPercentRow
                 hudRow
             }
         }
@@ -725,6 +726,24 @@ struct SettingsPanelContent: View {
         ) {
             Slider(value: $preferences.panelOpacity, in: 0.35...1.0, step: 0.05)
                 .frame(width: 140)
+        }
+    }
+
+    private var statusPercentRow: some View {
+        settingRow(
+            title: language.text("菜单栏百分比", "Menu bar percent"),
+            detail: language.text(
+                "图标旁显示哪家的剩余额度，或不显示",
+                "Which quota shows beside the icon, or none"
+            )
+        ) {
+            Picker("", selection: $preferences.statusPercentSource) {
+                ForEach(StatusPercentSource.allCases) { source in
+                    Text(source.label(language: language)).tag(source)
+                }
+            }
+            .labelsHidden()
+            .frame(width: 140)
         }
     }
 
@@ -1501,6 +1520,10 @@ struct QuotaPopoverContent: View {
                     .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(.white.opacity(0.92))
                 Spacer(minLength: 6)
+                Text(model.lastRefresh, style: .relative)
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.45))
+                    .help(language.text("距上次刷新的时间", "Time since last refresh"))
                 Button {
                     Task { await model.refresh(forceRemote: true) }
                 } label: {

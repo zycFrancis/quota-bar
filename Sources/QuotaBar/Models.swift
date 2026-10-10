@@ -240,6 +240,42 @@ enum MenuBarDisplayMode: String, CaseIterable, Identifiable, Sendable {
     }
 }
 
+/// 菜单栏图标旁百分比数字的来源。
+enum StatusPercentSource: String, CaseIterable, Identifiable, Sendable {
+    case none
+    case auto
+    case codex
+    case claude
+    case kimi
+    case glm
+    case deepseek
+
+    var id: String { rawValue }
+
+    var providerID: ProviderID? {
+        switch self {
+        case .none, .auto: nil
+        case .codex: .codex
+        case .claude: .claude
+        case .kimi: .kimi
+        case .glm: .glm
+        case .deepseek: .deepseek
+        }
+    }
+
+    func label(language: AppLanguage) -> String {
+        switch self {
+        case .none: language.text("不显示", "None")
+        case .auto: language.text("自动（最优）", "Auto (best)")
+        case .codex: "Codex"
+        case .claude: "Claude"
+        case .kimi: "Kimi"
+        case .glm: "GLM"
+        case .deepseek: "DeepSeek"
+        }
+    }
+}
+
 enum PanelLayoutMode: String, CaseIterable, Identifiable, Sendable {
     case standard
     case compact
