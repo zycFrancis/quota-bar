@@ -3,6 +3,7 @@
 本轮日期：2026-10-08/09。上游 [pumpkinpieuncle/quota-bar](https://github.com/pumpkinpieuncle/quota-bar) v1.4.0。
 
 ## 本轮事实
+- **v1.5.1 最终形态**：彻底移除常驻浮窗（FloatingPanel/ContentView/⌥⌘Q/布局设置全删），只保留 左键=纵向额度 popover、右键=标准菜单、左键 Dock=popover；菜单栏图标改为代码绘制三环（StatusRingIcon，与 Dock 图标同参数，template 自动适配深浅、低额度变橙）；fork 为主仓库（用户明确保留 fork 关系），zycFrancis/quota-bar main=glm-provider，v1.5.0/v1.5.1 已发。另一会话的窗口接力（WindowKeeper/ClaudeArmer）已合入并修复周几解析 bug。
 - **v1.4.8 状态栏与菜单观感修复**：新增 menuBarDisplayMode .icon（gauge 图标+最优单一百分比，装机 defaults 已切 icon）；右键菜单删 5 行灰色 provider 行成标准小菜单；switch 补 exhaustive 分支（CI 曾挂）。教训：菜单栏截图验证在自动隐藏菜单栏+无视觉模型下不可行，像素测量误把暗背景当内容，勿重蹈。
 - **2026-10-10 全面 review + v1.4.6**：审查全部改动（977+/187-），修复两处：设置窗 level .floating→.normal（正常窗口层级）、已开设置窗时点卡片"管理"现在会重建并切到对应 tab。CI swift test 37 项全过，装机验证 6×200+1×304 零失败。记录项（不改）：GLM limits 空数组防御分支为死代码（parseResponse 保证非空）；GlmCredentialStore memo 为进程级缓存（改凭证需重启）。
 - **remote 坑**：standalone remote 曾误指旧 fork zycFrancis/quota-bar（fork 删除因缺 delete_repo scope 未成功，仍占 quota-bar 名），导致 v1.4.6 一度推错仓库、dispatch 跑了旧 main；已改指 coding-quota-bar 并修正。**待办：用户授权 `gh auth refresh -h github.com -s delete_repo` 后删 fork，再 `gh repo rename quota-bar`，并同步 Updater.repo/README 引用后发一版**。
