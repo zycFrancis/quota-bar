@@ -2,7 +2,7 @@ import Foundation
 import UserNotifications
 
 /// 可参与窗口接力的供应商。
-enum KeeperProvider: String, CaseIterable, Identifiable, Sendable {
+enum KeeperProvider: String, CaseIterable, Identifiable, Codable, Sendable {
     case glm
     case kimi
     case claude

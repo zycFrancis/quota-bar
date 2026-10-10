@@ -262,12 +262,14 @@ final class AppPreferences: ObservableObject {
             : defaults.bool(forKey: Keys.hudAllowsLAN)
 
         keeperEnabled = defaults.bool(forKey: Keys.keeperEnabled)
-        keeperProviders = Set(
+        let savedProviders = Set(
             (defaults.stringArray(forKey: Keys.keeperProviders) ?? [])
                 .compactMap(KeeperProvider.init(rawValue:))
         )
-        if keeperProviders.isEmpty, defaults.object(forKey: Keys.keeperProviders) == nil {
+        if savedProviders.isEmpty, defaults.object(forKey: Keys.keeperProviders) == nil {
             keeperProviders = Set(KeeperProvider.allCases)
+        } else {
+            keeperProviders = savedProviders
         }
         let savedModels = defaults.dictionary(forKey: Keys.keeperModels) ?? [:]
         keeperModels = Dictionary(
