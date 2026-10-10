@@ -1120,11 +1120,11 @@ private struct AgentSetupPromptSection: View {
             ),
             (
                 "Kimi", kimiReady,
-                "- Kimi：创建 ~/.kimi-code/credentials/kimi-code.json，内容 {"access_token": "<Kimi API Key>", "expires_at": 1900000000}（无需安装 Kimi Code CLI）。"
+                "- Kimi：创建 ~/.kimi-code/credentials/kimi-code.json，内容 {\"access_token\": \"<Kimi API Key>\", \"expires_at\": 1900000000}（无需安装 Kimi Code CLI）。"
             ),
             (
                 "DeepSeek", DeepSeekCredentialStore.hasCredential(),
-                "- DeepSeek：创建 ~/.deepseek/credentials.json，内容 {"api_key": "<sk- 开头的 DeepSeek API Key>"}。"
+                "- DeepSeek：创建 ~/.deepseek/credentials.json，内容 {\"api_key\": \"<sk- 开头的 DeepSeek API Key>\"}。"
             ),
         ]
     }
