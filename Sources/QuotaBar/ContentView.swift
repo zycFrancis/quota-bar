@@ -1077,6 +1077,139 @@ struct SettingsPanelContent: View {
     }
 }
 
+/// 一键配置：按当前各家凭证状态生成一段可复制 prompt，
+/// 用户发给任意主力 agent 即可由对方自动完成初始配置。
+private struct AgentSetupPromptSection: View {
+    @ObservedObject var model: AppModel
+    @ObservedObject private var preferences: AppPreferences
+    @State private var copied = false
+
+    init(model: AppModel) {
+        self.model = model
+        _preferences = ObservedObject(wrappedValue: model.preferences)
+    }
+
+    private var language: AppLanguage { preferences.language }
+
+    /// 检测各家凭证是否已就绪（只读检测，不触发网络）。
+    private var setupStatus: [(name: String, ready: Bool, guide: String)] {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let kimiReady = FileManager.default.fileExists(
+            atPath: home.appending(path: ".kimi-code/credentials/kimi-code.json").path
+        ) || FileManager.default.fileExists(
+            atPath: home.appending(path: ".kimi/credentials/kimi-code.json").path
+        )
+        let claudeReady = FileManager.default.fileExists(
+            atPath: home.appending(path: ".claude").path
+        )
+        let codexReady = FileManager.default.fileExists(
+            atPath: home.appending(path: ".codex/auth.json").path
+        )
+        return [
+            (
+                "Codex", codexReady,
+                "- Codex：已装 Codex CLI 并 `codex login` 登录即可，无需写凭证文件。"
+            ),
+            (
+                "Claude", claudeReady,
+                "- Claude：已装 Claude Desktop / Claude Code 并登录即可；Quota Bar 卡片上点「启用零额度采集」完成引导。"
+            ),
+            (
+                "GLM", GlmCredentialStore.hasCredential(),
+                "- GLM Coding Plan：把智谱 API Key 写入 ~/.dsh/.credentials.yaml 的 refs 段（新增一行 `ZAI_CODING_CN_API_KEY: <key>`；文件不存在则创建含 version/refs 结构）；或导出环境变量 ZAI_CODING_CN_API_KEY 后重启 Quota Bar。"
+            ),
+            (
+                "Kimi", kimiReady,
+                "- Kimi：创建 ~/.kimi-code/credentials/kimi-code.json，内容 {"access_token": "<Kimi API Key>", "expires_at": 1900000000}（无需安装 Kimi Code CLI）。"
+            ),
+            (
+                "DeepSeek", DeepSeekCredentialStore.hasCredential(),
+                "- DeepSeek：创建 ~/.deepseek/credentials.json，内容 {"api_key": "<sk- 开头的 DeepSeek API Key>"}。"
+            ),
+        ]
+    }
+
+    private var promptText: String {
+        let pending = setupStatus.filter { !$0.ready }
+        var lines: [String] = []
+        lines.append("请帮我在本机完成 Quota Bar（macOS 菜单栏 AI 编码额度监控）的初始配置。")
+        lines.append("")
+        lines.append("1. 安装应用：从 https://github.com/zycFrancis/quota-bar/releases 下载最新 DMG，把 Quota Bar.app 拖入 /Applications 后启动；若 macOS 提示无法验证开发者，到 系统设置 → 隐私与安全性 点「仍要打开」。")
+        if pending.isEmpty {
+            lines.append("2. 本机凭证已齐全（Codex/Claude/GLM/Kimi/DeepSeek 均已检测到），你只需启动应用并核对数据。")
+        } else {
+            lines.append("2. 我还有以下家未配置，请按指引写入凭证文件（我不提供的 key 直接跳过那一家）：")
+            for item in pending where item.name != "Codex" && item.name != "Claude" {
+                lines.append(item.guide)
+            }
+            for item in pending where item.name == "Codex" || item.name == "Claude" {
+                lines.append(item.guide)
+            }
+        }
+        lines.append("3. 完成后启动 Quota Bar，左键点状态栏图标检查各家额度是否出现；未出现的家把对应凭证文件路径与格式核对后告诉我。")
+        lines.append("安全要求：所有 key 只写入上述本机文件，不要把 key 打印到对话、写入任何仓库或日志。")
+        return lines.joined(separator: "\n")
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.stars")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1))
+                Text(language.text("一键配置", "One-tap setup"))
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.92))
+                Spacer(minLength: 6)
+                Button {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(promptText, forType: .string)
+                    copied = true
+                    Task {
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                        copied = false
+                    }
+                } label: {
+                    Label(
+                        copied
+                            ? language.text("已复制", "Copied")
+                            : language.text("复制 Prompt", "Copy prompt"),
+                        systemImage: copied ? "checkmark" : "doc.on.doc"
+                    )
+                    .font(.system(size: 10.5, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.8))
+                }
+                .buttonStyle(HeaderButtonStyle())
+            }
+            Text(language.text(
+                "把 Prompt 发给你正在用的主力 agent（Claude Code / Codex 等），它会按指引自动完成安装与凭证配置。",
+                "Send the prompt to your main agent (Claude Code / Codex …) and it will finish install & credentials for you."
+            ))
+            .font(.system(size: 10))
+            .foregroundStyle(.white.opacity(0.45))
+            .fixedSize(horizontal: false, vertical: true)
+            HStack(spacing: 6) {
+                ForEach(setupStatus, id: \.name) { item in
+                    Text(item.name)
+                        .font(.system(size: 9.5, weight: .bold))
+                        .foregroundStyle(item.ready ? .white.opacity(0.85) : .white.opacity(0.4))
+                        .padding(.horizontal, 7)
+                        .padding(.vertical, 3)
+                        .background(
+                            Capsule().fill(
+                                item.ready
+                                    ? Color.green.opacity(0.28)
+                                    : Color.white.opacity(0.08)
+                            )
+                        )
+                }
+            }
+        }
+        .padding(12)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
+    }
+}
+
 private struct ProviderManagerContent: View {
     @ObservedObject var model: AppModel
     @ObservedObject private var preferences: AppPreferences
@@ -1090,11 +1223,16 @@ private struct ProviderManagerContent: View {
 
     private var language: AppLanguage { preferences.language }
 
+    private var agentSetupPromptSection: some View {
+        AgentSetupPromptSection(model: model)
+    }
+
     var body: some View {
         GeometryReader { proxy in
             if proxy.size.width >= 560 {
                 HStack(alignment: .top, spacing: 12) {
                     ScrollView(.vertical, showsIndicators: false) {
+                        agentSetupPromptSection
                         providerItems
                     }
                     .scrollBounceBehavior(.basedOnSize)
@@ -1106,6 +1244,7 @@ private struct ProviderManagerContent: View {
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     VStack(spacing: 12) {
+                        agentSetupPromptSection
                         providerItems
                         deepSeekSetup
                     }

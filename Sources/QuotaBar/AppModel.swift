@@ -47,7 +47,6 @@ final class AppModel: ObservableObject {
         {
             try? ClaudeCollectorInstaller.install()
         }
-        observeWorkspaceWake()
         Task { await refresh(forceRemote: true) }
         // Quiet update check shortly after launch so the settings row and the
         // menu item already know whether a new release exists.
