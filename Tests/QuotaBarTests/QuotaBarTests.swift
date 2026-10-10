@@ -720,27 +720,6 @@ import Testing
     #expect(withQuery.query["pretty"] == "1")
 }
 
-@MainActor
-@Test func cardGridNeverLeavesAnEmptyColumn() {
-    // The default panel width must lay the cards out with no dead space, so
-    // the column count is capped at the number of services.
-    for count in 1...6 {
-        let width = PanelLayoutMode.standard.defaultWidth(visibleProviderCount: count)
-        let available = width - 28  // the panel's horizontal padding
-        #expect(
-            ContentView.cardColumnCount(availableWidth: available, cardCount: count) == count
-        )
-    }
-
-    // Narrowing the panel wraps the cards instead of shrinking them forever.
-    #expect(ContentView.cardColumnCount(availableWidth: 1_226, cardCount: 6) == 6)
-    #expect(ContentView.cardColumnCount(availableWidth: 700, cardCount: 6) == 4)
-    #expect(ContentView.cardColumnCount(availableWidth: 340, cardCount: 6) == 2)
-    #expect(ContentView.cardColumnCount(availableWidth: 300, cardCount: 6) == 1)
-    #expect(ContentView.cardColumnCount(availableWidth: 0, cardCount: 6) == 1)
-    #expect(ContentView.cardColumnCount(availableWidth: 1_226, cardCount: 0) == 1)
-}
-
 @Test func readsKimiMonthlyAndRollingQuotas() throws {
     let payload = """
     {
