@@ -1152,11 +1152,8 @@ private struct AgentSetupPromptSection: View {
     }
 
     var body: some View {
-        // 只在新机/缺配置场景出现：全部就绪时卡片隐藏，
-        // 避免"凭证已齐全"的低价值内容占据设置页。
-        if setupStatus.contains(where: { !$0.ready }) {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
                 Image(systemName: "wand.and.stars")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color(red: 0.55, green: 0.82, blue: 1))
@@ -1208,10 +1205,9 @@ private struct AgentSetupPromptSection: View {
                 }
             }
         }
-            .padding(12)
-            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
-            }
-        }
+        .padding(12)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
+    }
 }
 
 private struct ProviderManagerContent: View {
