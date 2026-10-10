@@ -23,10 +23,8 @@ final class AppModel: ObservableObject {
     private let antigravityClient = AntigravityUsageClient()
     private var scheduledRefresh: Task<Void, Never>?
     private var latestRelease: LatestRelease?
-    private var keeperCancellable: AnyCancellable?
 
     /// 窗口接力引擎。lazy：依赖上面的 client 实例。
-    lazy var keeper = WindowKeeper(glmClient: glmClient, kimiClient: kimiClient)
 
     var language: AppLanguage { preferences.language }
 
@@ -49,8 +47,6 @@ final class AppModel: ObservableObject {
         {
             try? ClaudeCollectorInstaller.install()
         }
-        applyKeeperConfig()
-        forwardKeeperChanges()
         observeWorkspaceWake()
         Task { await refresh(forceRemote: true) }
         // Quiet update check shortly after launch so the settings row and the
@@ -61,48 +57,8 @@ final class AppModel: ObservableObject {
         }
     }
 
-    // MARK: - WindowKeeper wiring
-
-    private func applyKeeperConfig() {
-        keeper.config = WindowKeeper.Config(
-            enabled: preferences.keeperEnabled,
-            providers: preferences.keeperProviders,
-            models: Dictionary(
-                uniqueKeysWithValues: KeeperProvider.allCases.map {
-                    ($0, preferences.keeperModel(for: $0))
-                }
-            ),
-            notifyOnFailure: preferences.keeperNotifyOnFailure
-        )
-    }
-
     /// 引擎状态变化转发给 AppModel 的订阅者，设置面板才能实时刷新脚注。
-    private func forwardKeeperChanges() {
-        guard keeperCancellable == nil else { return }
-        keeperCancellable = keeper.objectWillChange.sink { [weak self] _ in
-            self?.objectWillChange.send()
-        }
-    }
-
-    /// 睡眠唤醒后立即检查错过的点火时刻（launchd/系统定时器睡眠中会漂移）。
-    private func observeWorkspaceWake() {
-        NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didWakeNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor [weak self] in
-                self?.keeper.handleWake()
-            }
-        }
-    }
-
     /// 设置面板「立即点火」按钮入口。
-    func keeperManualArm(_ provider: KeeperProvider) async {
-        await keeper.manualArm(provider)
-        await refresh(forceRemote: true)
-    }
-
     // MARK: - Updates
 
     func checkForUpdate() async {
@@ -405,14 +361,6 @@ final class AppModel: ObservableObject {
             }
         }
 
-        keeper.ingest(snapshots: merged)
-        let keeperNotes = keeper.notes(language: currentLanguage)
-        for index in merged.indices {
-            let note = keeperNotes[merged[index].id]
-            merged[index].keeperNote = note?.text
-            merged[index].keeperNoteHasError = note?.isError ?? false
-        }
-
         snapshots = merged
         lastRefresh = Date()
         isRefreshing = false
@@ -422,10 +370,6 @@ final class AppModel: ObservableObject {
 
     func preferencesChanged(languageChanged: Bool) {
         hud.apply(preferences: preferences, snapshots: snapshots)
-        applyKeeperConfig()
-        if preferences.keeperEnabled {
-            Task { await KeeperNotifier.requestAuthorization() }
-        }
         if languageChanged {
             Task { await refresh(forceRemote: false) }
         } else {
