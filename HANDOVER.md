@@ -3,6 +3,7 @@
 本轮日期：2026-10-08/09。上游 [pumpkinpieuncle/quota-bar](https://github.com/pumpkinpieuncle/quota-bar) v1.4.0。
 
 ## 本轮事实
+- **v1.5.5 常驻验证（2026-10-10，全自动化）**：分布式通知 `local.quotabar.showMenu` 弹菜单 → AX 点「设置…」开窗 → `/tmp/axclick.swift`（AXUIElement 递归搜索 kAXTitle/kAXDescription 含"模型管理"的按钮并 kAXPressAction）切 tab → 截图 + Vision OCR 五项全命中（一键配置 / 复制 Pr… / "把 Prompt 发给你正在用的主力 agent…" / 胶囊 GLM / 胶囊 Kimi）。结论：一键配置卡片在五家凭证齐全时仍常驻显示，v1.5.5 行为符合预期。截图 `/tmp/setup-card.png`。附带沉淀：SwiftUI 深层嵌套下 AppleScript entire contents 枚举为空，需 AXUIElement 递归；⌘, 快捷键在无 key window 的 app 上不可达，开设置窗走菜单路径最稳。
 - **v1.5.4/v1.5.5**：一键配置卡片 v1.5.4 曾改为仅缺配置时显示，用户要求常驻，v1.5.5 恢复无条件显示；均已发布并装机。
 - **v1.5.3**：彻底移除窗口接力（WindowKeeper/ClaudeArmer/设置区块/测试全删，二进制 strings 验证 0 残留，defaults 残留键手动清理）；新增模型管理「一键配置」卡片——按各家凭证就绪状态（五枚胶囊）动态生成 Prompt，一键复制发给主力 agent 自动完成安装+配置（含安全约束）。
 - **v1.5.2**：面板刷新按钮旁加 lastRefresh 相对时间（Text style .relative）；菜单栏百分比来源可设置（StatusPercentSource：none/auto/五家，设置→通用，装机已设 none，AX 描述从 menu bar item 11% 变纯图标证实生效）。
