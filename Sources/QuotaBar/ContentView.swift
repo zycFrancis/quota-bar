@@ -520,6 +520,26 @@ private struct ProviderCard: View {
                 .truncationMode(.middle)
                 .help(snapshot.source)
 
+            if let keeperNote = snapshot.keeperNote {
+                HStack(spacing: 3) {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 7.5, weight: .bold))
+                    Text(keeperNote)
+                        .font(.system(size: 9, weight: .semibold))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                }
+                .foregroundStyle(
+                    snapshot.keeperNoteHasError
+                        ? Color(red: 1, green: 0.62, blue: 0.44)
+                        : Color(red: 0.55, green: 0.82, blue: 1).opacity(0.85)
+                )
+                .help(language.text(
+                    "窗口接力：5 小时窗口刷新后自动发最小请求开启新窗口",
+                    "Auto re-arm: fire a minimal request right after each 5h window resets"
+                ))
+            }
+
             if snapshot.id == .deepseek {
                 Button {
                     if let url = URL(string: "https://platform.deepseek.com/") {
@@ -962,6 +982,7 @@ struct SettingsPanelContent: View {
                 quotaWindowRow
                 menuBarDisplayRow
                 warningRow
+                keeperSection
                 layoutRow
                 opacityRow
                 popoverWidthRow
@@ -975,12 +996,21 @@ struct SettingsPanelContent: View {
     private var footerStatus: some View {
         HStack(spacing: 7) {
             if selectedTab == .general {
-                Image(systemName: "leaf.fill")
-                    .foregroundStyle(Color(red: 0.43, green: 0.92, blue: 0.66))
-                Text(language.text(
-                    "状态只来自本地，不调用模型 · 顶部栏被遮挡时按 ⌥⌘Q",
-                    "Local status never calls a model · Press ⌥⌘Q if the menu bar is hidden"
-                ))
+                if preferences.keeperEnabled {
+                    Image(systemName: "flame.fill")
+                        .foregroundStyle(Color(red: 1, green: 0.66, blue: 0.44))
+                    Text(language.text(
+                        "窗口接力开启：窗口刷新时会发最小模型请求 · 顶部栏被遮挡时按 ⌥⌘Q",
+                        "Auto re-arm on: minimal model requests at window resets · Press ⌥⌘Q if the menu bar is hidden"
+                    ))
+                } else {
+                    Image(systemName: "leaf.fill")
+                        .foregroundStyle(Color(red: 0.43, green: 0.92, blue: 0.66))
+                    Text(language.text(
+                        "状态只来自本地，不调用模型 · 顶部栏被遮挡时按 ⌥⌘Q",
+                        "Local status never calls a model · Press ⌥⌘Q if the menu bar is hidden"
+                    ))
+                }
             } else {
                 Image(systemName: "slider.horizontal.2.square")
                     .foregroundStyle(Color(red: 0.43, green: 0.82, blue: 0.98))
@@ -1223,6 +1253,157 @@ struct SettingsPanelContent: View {
             .pickerStyle(.segmented)
             .frame(width: 200)
         }
+    }
+
+    // MARK: - 窗口接力
+
+    private var keeperSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(language.text("窗口接力", "Auto re-arm"))
+                        .font(.system(size: 11.5, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.92))
+                    Text(language.text(
+                        "5 小时窗口刷新后立即发一个最小请求，让新窗口保持滚动",
+                        "Fire a minimal request right after each 5h window resets"
+                    ))
+                    .font(.system(size: 9.5, weight: .medium))
+                    .foregroundStyle(.white.opacity(0.4))
+                    .fixedSize(horizontal: false, vertical: true)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: keeperEnabledBinding)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+            }
+
+            if preferences.keeperEnabled {
+                VStack(spacing: 4) {
+                    ForEach(KeeperProvider.allCases) { provider in
+                        keeperProviderRow(provider)
+                    }
+                    HStack(spacing: 5) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 8.5, weight: .bold))
+                            .foregroundStyle(Color(red: 1, green: 0.62, blue: 0.4))
+                        Text(language.text(
+                            "点火 = 每个窗口一次约 16 token 的请求；Claude 通过本机 claude CLI 调用",
+                            "One ~16-token request per window; Claude re-arms via the local claude CLI"
+                        ))
+                        .font(.system(size: 9, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.4))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 9))
+            }
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 11))
+    }
+
+    private var keeperEnabledBinding: Binding<Bool> {
+        Binding(
+            get: { preferences.keeperEnabled },
+            set: { newValue in
+                preferences.keeperEnabled = newValue
+                if newValue {
+                    Task { await KeeperNotifier.requestAuthorization() }
+                }
+                model.preferencesChanged(languageChanged: false)
+            }
+        )
+    }
+
+    private func keeperProviderRow(_ provider: KeeperProvider) -> some View {
+        let isEnabled = preferences.keeperProviders.contains(provider)
+        let state = model.keeper.states[provider]
+        let statusText: String?
+        if let error = state?.lastError {
+            statusText = String(error.prefix(48))
+        } else if let next = state?.nextArmAt {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: language == .chinese ? "zh_CN" : "en_US")
+            formatter.dateFormat = language == .chinese ? "HH:mm" : "h:mm a"
+            statusText = formatter.string(from: next)
+        } else {
+            statusText = nil
+        }
+        return HStack(spacing: 7) {
+            Image(systemName: "flame.fill")
+                .font(.system(size: 9, weight: .bold))
+                .foregroundStyle(
+                    provider.providerID.accent.opacity(isEnabled ? 0.95 : 0.3)
+                )
+            Text(provider.title)
+                .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(.white.opacity(isEnabled ? 0.85 : 0.4))
+
+            if let statusText {
+                Text(statusText)
+                    .font(.system(size: 9, weight: .medium))
+                    .foregroundStyle(
+                        state?.lastError == nil
+                            ? .white.opacity(0.42)
+                            : Color(red: 1, green: 0.62, blue: 0.44)
+                    )
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+
+            Spacer(minLength: 4)
+
+            TextField(
+                language.text("模型", "model"),
+                text: keeperModelBinding(provider)
+            )
+            .multilineTextAlignment(.trailing)
+            .textFieldStyle(.roundedBorder)
+            .frame(width: 132)
+            .disabled(!isEnabled)
+
+            Button {
+                Task { await model.keeperManualArm(provider) }
+            } label: {
+                Image(systemName: "flame")
+                    .frame(width: 23, height: 23)
+            }
+            .buttonStyle(ManagerButtonStyle())
+            .disabled(!isEnabled || model.keeper.isArming.contains(provider))
+            .help(language.text("立即点火（手动验证用）", "Arm now (manual verification)"))
+
+            Toggle("", isOn: keeperProviderBinding(provider))
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .frame(width: 40)
+        }
+        .padding(.horizontal, 4)
+        .frame(height: 32)
+    }
+
+    private func keeperModelBinding(_ provider: KeeperProvider) -> Binding<String> {
+        Binding(
+            get: { preferences.keeperModel(for: provider) },
+            set: { newValue in
+                preferences.setKeeperModel(newValue, for: provider)
+                model.preferencesChanged(languageChanged: false)
+            }
+        )
+    }
+
+    private func keeperProviderBinding(_ provider: KeeperProvider) -> Binding<Bool> {
+        Binding(
+            get: { preferences.keeperProviders.contains(provider) },
+            set: { newValue in
+                preferences.setKeeperProvider(provider, enabled: newValue)
+                model.preferencesChanged(languageChanged: false)
+            }
+        )
     }
 
     private var layoutRow: some View {

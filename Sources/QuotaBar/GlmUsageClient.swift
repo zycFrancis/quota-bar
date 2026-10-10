@@ -161,7 +161,36 @@ actor GlmUsageClient {
     }
 
     private let quotaURL = URL(string: "https://open.bigmodel.cn/api/monitor/usage/quota/limit")!
+    private let messagesURL = URL(string: "https://open.bigmodel.cn/api/anthropic/v1/messages")!
     private var lastResult: UsageResult?
+
+    /// 窗口点火：发一个最小 /v1/messages 请求，在 5 小时窗口重置后立刻
+    /// 开启新窗口。订阅套餐按 token 计费，16 个 token 的消耗可忽略；
+    /// 若窗口本就活跃，该请求只是正常并入，不会扰动窗口。
+    func arm(model: String) async throws {
+        guard let key = GlmCredentialStore.load() else {
+            throw ClientError.missingCredential
+        }
+        var request = URLRequest(url: messagesURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 30
+        // 实测该端点 Authorization 直接放裸 key（Bearer 前缀也会被剥掉）。
+        request.setValue(key, forHTTPHeaderField: "Authorization")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue(AppVersion.userAgent, forHTTPHeaderField: "User-Agent")
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model.isEmpty ? "glm-4.5-air" : model,
+            "max_tokens": 16,
+            "messages": [["role": "user", "content": "hi"]]
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 { throw ClientError.invalidCredential }
+        guard (200..<300).contains(status) else { throw ClientError.http(status) }
+        _ = data
+    }
 
     func fetchIfNeeded(force: Bool) async throws -> UsageResult {
         if

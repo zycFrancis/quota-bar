@@ -522,6 +522,8 @@ struct ProviderSnapshot: Identifiable, Equatable, Sendable {
     var balances: [AccountBalance] = []
     var resetCards: ResetCardInfo? = nil
     var resetPrediction: CodexResetPrediction? = nil
+    /// 窗口接力状态脚注（未启用时为 nil）。
+    var keeperNote: String? = nil
 
     static func placeholder(_ id: ProviderID) -> ProviderSnapshot {
         ProviderSnapshot(
@@ -534,7 +536,8 @@ struct ProviderSnapshot: Identifiable, Equatable, Sendable {
             setupAvailable: false,
             isInstalled: false,
             resetCards: nil,
-            resetPrediction: nil
+            resetPrediction: nil,
+            keeperNote: nil
         )
     }
 }

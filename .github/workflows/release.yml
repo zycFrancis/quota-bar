@@ -89,6 +89,8 @@ jobs:
           spctl --assess --type execute --verbose=2 "dist/Quota Bar.app"
 
       - name: Publish GitHub release
+        # 仅 tag 触发时发布；workflow_dispatch（分支验证构建）只出 artifact。
+        if: startsWith(github.ref, 'refs/tags/')
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}

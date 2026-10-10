@@ -78,6 +78,43 @@ final class AppPreferences: ObservableObject {
         didSet { defaults.set(hudEnabled, forKey: Keys.hudEnabled) }
     }
 
+    /// 窗口接力总开关：5 小时窗口刷新后自动发最小请求开启新窗口。
+    /// 公开仓库默认关闭，避免新用户在不知情时产生模型调用。
+    @Published var keeperEnabled: Bool {
+        didSet { defaults.set(keeperEnabled, forKey: Keys.keeperEnabled) }
+    }
+
+    /// 参与接力的供应商（在 KeeperProvider 意义上以 rawValue 存储）。
+    @Published var keeperProviders: Set<KeeperProvider> {
+        didSet {
+            defaults.set(
+                keeperProviders.map(\.rawValue).sorted(),
+                forKey: Keys.keeperProviders
+            )
+        }
+    }
+
+    /// 各供应商点火用的模型 id，空串回落到默认值。
+    @Published var keeperModels: [KeeperProvider: String] {
+        didSet {
+            defaults.set(
+                Dictionary(
+                    uniqueKeysWithValues: keeperModels.map { key, value in
+                        (key.rawValue, value)
+                    }
+                ),
+                forKey: Keys.keeperModels
+            )
+        }
+    }
+
+    /// 接力失败时发 macOS 通知。
+    @Published var keeperNotifyOnFailure: Bool {
+        didSet {
+            defaults.set(keeperNotifyOnFailure, forKey: Keys.keeperNotifyOnFailure)
+        }
+    }
+
     @Published var hudPort: Int {
         didSet { defaults.set(hudPort, forKey: Keys.hudPort) }
     }
@@ -106,6 +143,10 @@ final class AppPreferences: ObservableObject {
         static let hudPort = "hudPort"
         static let hudAllowsLAN = "hudAllowsLAN"
         static let hudToken = "hudToken"
+        static let keeperEnabled = "keeperEnabled"
+        static let keeperProviders = "keeperProviders"
+        static let keeperModels = "keeperModels"
+        static let keeperNotifyOnFailure = "keeperNotifyOnFailure"
 
         static let panelTopLeft = "panelTopLeft"
         static let panelOpacity = "panelOpacity"
@@ -219,6 +260,52 @@ final class AppPreferences: ObservableObject {
         hudAllowsLAN = defaults.object(forKey: Keys.hudAllowsLAN) == nil
             ? true
             : defaults.bool(forKey: Keys.hudAllowsLAN)
+
+        keeperEnabled = defaults.bool(forKey: Keys.keeperEnabled)
+        keeperProviders = Set(
+            (defaults.stringArray(forKey: Keys.keeperProviders) ?? [])
+                .compactMap(KeeperProvider.init(rawValue:))
+        )
+        if keeperProviders.isEmpty, defaults.object(forKey: Keys.keeperProviders) == nil {
+            keeperProviders = Set(KeeperProvider.allCases)
+        }
+        let savedModels = defaults.dictionary(forKey: Keys.keeperModels) ?? [:]
+        keeperModels = Dictionary(
+            uniqueKeysWithValues: savedModels.compactMap { key, value in
+                guard
+                    let name = key as? String,
+                    let provider = KeeperProvider(rawValue: name),
+                    let model = value as? String
+                else { return nil }
+                return (provider, model)
+            }
+        )
+        keeperNotifyOnFailure = defaults.object(forKey: Keys.keeperNotifyOnFailure) == nil
+            ? true
+            : defaults.bool(forKey: Keys.keeperNotifyOnFailure)
+    }
+
+    /// 读取某供应商的点火模型（未配置时给默认值）。
+    func keeperModel(for provider: KeeperProvider) -> String {
+        keeperModels[provider]?.isEmpty == false
+            ? keeperModels[provider] ?? provider.defaultModel
+            : provider.defaultModel
+    }
+
+    func setKeeperModel(_ model: String, for provider: KeeperProvider) {
+        var next = keeperModels
+        next[provider] = model
+        keeperModels = next
+    }
+
+    func setKeeperProvider(_ provider: KeeperProvider, enabled: Bool) {
+        var next = keeperProviders
+        if enabled {
+            next.insert(provider)
+        } else {
+            next.remove(provider)
+        }
+        keeperProviders = next
     }
 
     // MARK: - Panel geometry

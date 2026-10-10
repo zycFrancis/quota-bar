@@ -21,8 +21,66 @@ actor KimiUsageClient {
     private let clientID = "17e5f671-d194-4dfb-9706-5516cb48c098"
     private let authURL = URL(string: "https://auth.kimi.com/api/oauth/token")!
     private let usageURL = URL(string: "https://api.kimi.com/coding/v1/usages")!
+    private let armURL = URL(string: "https://api.kimi.com/coding/v1/messages")!
     private var lastRemoteFetch: Date?
     private var lastResult: UsageResult?
+
+    /// 窗口点火：发一个最小 /coding/v1/messages 请求，在 5 小时窗口重置后
+    /// 立刻开启新窗口。该端点接受 kimi-code 凭据（Bearer），订阅内 16 个
+    /// token 消耗可忽略；窗口活跃时请求只是正常并入。
+    func arm(model: String) async throws {
+        let credentialURL = home.appending(path: ".kimi-code/credentials/kimi-code.json")
+        guard
+            let credentialData = try? Data(contentsOf: credentialURL),
+            var credential = try? JSONSerialization.jsonObject(
+                with: credentialData
+            ) as? [String: Any]
+        else {
+            throw CollectorError.invalidCredential
+        }
+        do {
+            try await sendArmRequest(
+                token: credential["access_token"] as? String ?? "",
+                model: model
+            )
+        } catch CollectorError.http(401) {
+            // 401 时尝试刷新一次（凭据文件里有 refresh_token 才可能成功）。
+            guard
+                let fresh = try? await refreshCredential(
+                    credential,
+                    saveTo: credentialURL
+                )
+            else { throw CollectorError.invalidCredential }
+            credential = fresh
+            try await sendArmRequest(
+                token: credential["access_token"] as? String ?? "",
+                model: model
+            )
+        }
+    }
+
+    private func sendArmRequest(token: String, model: String) async throws {
+        guard !token.isEmpty else { throw CollectorError.invalidCredential }
+        var request = URLRequest(url: armURL)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 60
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        applyKimiHeaders(to: &request)
+        request.httpBody = try JSONSerialization.data(withJSONObject: [
+            "model": model.isEmpty ? "kimi-k2-turbo-preview" : model,
+            "max_tokens": 16,
+            "messages": [["role": "user", "content": "hi"]]
+        ])
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        let status = (response as? HTTPURLResponse)?.statusCode ?? 0
+        if status == 401 { throw CollectorError.http(401) }
+        guard (200..<300).contains(status) else { throw CollectorError.http(status) }
+        _ = data
+    }
 
     private var webCredentialURL: URL {
         home.appending(path: ".kimi-code/credentials/kimi-web.json")

@@ -12,5 +12,5 @@ enum AppVersion {
 
     /// Kept in sync with Resources/Info.plist so unbundled debug runs still
     /// report something sensible.
-    private static let fallback = "1.4.0"
+    private static let fallback = "1.5.0"
 }
