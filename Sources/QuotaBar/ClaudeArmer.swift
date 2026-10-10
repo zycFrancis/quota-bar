@@ -190,7 +190,8 @@ enum ClaudeArmer {
         for (name, number) in weekdays {
             if let range = text.range(of: name, options: [.caseInsensitive]) {
                 targetWeekday = number
-                text = String(text[..<range.lowerBound])
+                // 保留星期词之后的钟点部分（"Monday 7:40am" → "7:40am"）。
+                text = String(text[range.upperBound...])
                     .trimmingCharacters(in: .whitespacesAndNewlines)
                 break
             }
