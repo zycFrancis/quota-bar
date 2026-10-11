@@ -173,7 +173,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             name: NSNotification.Name("local.quotabar.showMenu"),
             object: nil
         )
+        // 额度面板（左键等效）的自动化入口：无合成鼠标事件尾巴，
+        // transient popover 可稳定存活供截图/脚本验证。
+        DistributedNotificationCenter.default().addObserver(
+            self,
+            selector: #selector(showPopoverFromAutomation(_:)),
+            name: NSNotification.Name("local.quotabar.showPopover"),
+            object: nil
+        )
         model.start()
+    }
+
+    @objc private func showPopoverFromAutomation(_ notification: Notification) {
+        guard let button = statusItem?.button else { return }
+        toggleQuotaPopover(from: button)
     }
 
     @objc private func showMenuFromAutomation(_ notification: Notification) {
