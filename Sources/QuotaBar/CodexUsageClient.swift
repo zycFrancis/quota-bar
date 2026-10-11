@@ -260,19 +260,20 @@ actor CodexUsageClient {
         }
     }
 
-    /// ~/.codex/auth.json 的 id_token 是否已过期（exp < now）。
-    /// access_token 可能仍有效，但过期凭证下 rateLimits 不可信。
+    /// ~/.codex/auth.json 的 access_token 是否已过期（exp < now）。
+    /// 注意不能用 id_token 判断：它只有 1 小时寿命，CLI 并不会随时刷新，
+    /// 拿它判过期会常年误报；access_token 约 10 天，过期才真正不可信。
     nonisolated static func isCredentialExpired() -> Bool {
         let home = FileManager.default.homeDirectoryForCurrentUser
         let url = home.appending(path: ".codex/auth.json")
         guard let data = try? Data(contentsOf: url),
               let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let tokens = object["tokens"] as? [String: Any],
-              let idToken = tokens["id_token"] as? String
+              let accessToken = tokens["access_token"] as? String
         else {
             return false
         }
-        let segments = idToken.split(separator: ".")
+        let segments = accessToken.split(separator: ".")
         guard segments.count >= 2 else { return false }
         var base64 = String(segments[1])
         while base64.count % 4 != 0 { base64 += "=" }
