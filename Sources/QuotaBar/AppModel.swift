@@ -165,6 +165,15 @@ final class AppModel: ObservableObject {
                     if let resetCards = usage.resetCards {
                         merged[index].resetCards = resetCards
                     }
+                    // ProLite 套餐官方接口不提供已用百分比（恒 0），
+                    // 明示口径，避免"剩 100%"误导。
+                    if usage.plan == "ProLite",
+                       usage.limits.allSatisfy({ $0.remainingPercent >= 99.9 }) {
+                        merged[index].detail = currentLanguage.text(
+                            "ProLite：官方接口不提供用量百分比，实际额度以 ChatGPT App 内为准",
+                            "ProLite: official API reports no usage percent; see the ChatGPT app for real usage"
+                        )
+                    }
                     if let prediction = await CodexResetMonitorClient.shared.fetchIfNeeded(force: forceRemote) {
                         merged[index].resetPrediction = prediction
                     }
@@ -191,6 +200,13 @@ final class AppModel: ObservableObject {
                         merged[index].resetPrediction = previous.resetPrediction
                         merged[index].lastUpdated = previous.lastUpdated
                         merged[index].source = previous.source
+                    } else if let usageError = error as? CodexUsageClient.UsageError,
+                              case .credentialExpired = usageError {
+                        merged[index].activity = .needsAttention
+                        merged[index].detail = currentLanguage.text(
+                            "Codex 登录已过期，请运行 codex login",
+                            "Codex sign-in expired; run codex login"
+                        )
                     } else {
                         merged[index].source = currentLanguage.text(
                             "Codex 本地快照（账号同步暂不可用）",

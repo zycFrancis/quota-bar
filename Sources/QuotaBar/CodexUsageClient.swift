@@ -14,6 +14,7 @@ actor CodexUsageClient {
         case launchFailed
         case timedOut
         case invalidResponse
+        case credentialExpired
         case server(String)
 
         var errorDescription: String? {
@@ -26,6 +27,8 @@ actor CodexUsageClient {
                 "The Codex account reader timed out."
             case .invalidResponse:
                 "Codex returned an unreadable account-usage response."
+            case .credentialExpired:
+                "Codex sign-in expired; run `codex login`."
             case .server(let message):
                 "Codex account reader error: \(message)"
             }
@@ -72,6 +75,11 @@ actor CodexUsageClient {
                 )
             }
             return lastResult
+        }
+
+        // id_token 过期时服务端可能返回失真数据（如恒 0%），先挡住并提示重新登录。
+        if Self.isCredentialExpired() {
+            throw UsageError.credentialExpired
         }
 
         let response = try await Task.detached(priority: .utility) {
@@ -250,6 +258,31 @@ actor CodexUsageClient {
         default:
             "Quota"
         }
+    }
+
+    /// ~/.codex/auth.json 的 id_token 是否已过期（exp < now）。
+    /// access_token 可能仍有效，但过期凭证下 rateLimits 不可信。
+    nonisolated static func isCredentialExpired() -> Bool {
+        let home = FileManager.default.homeDirectoryForCurrentUser
+        let url = home.appending(path: ".codex/auth.json")
+        guard let data = try? Data(contentsOf: url),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let tokens = object["tokens"] as? [String: Any],
+              let idToken = tokens["id_token"] as? String
+        else {
+            return false
+        }
+        let segments = idToken.split(separator: ".")
+        guard segments.count >= 2 else { return false }
+        var base64 = String(segments[1])
+        while base64.count % 4 != 0 { base64 += "=" }
+        guard let payload = Data(base64Encoded: base64),
+              let claims = try? JSONSerialization.jsonObject(with: payload) as? [String: Any],
+              let exp = LocalCollectors.number(claims["exp"])
+        else {
+            return false
+        }
+        return exp < Date().timeIntervalSince1970
     }
 
     private nonisolated static func readAccountRateLimits() throws -> Data {
