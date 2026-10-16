@@ -8,6 +8,7 @@ enum ProviderID: String, CaseIterable, Identifiable, Sendable {
     case deepseek
     case grok
     case gemini
+    case devin
 
     var id: String { rawValue }
 
@@ -20,6 +21,7 @@ enum ProviderID: String, CaseIterable, Identifiable, Sendable {
         case .deepseek: "DeepSeek"
         case .grok: "Grok"
         case .gemini: "Antigravity"
+        case .devin: "Devin"
         }
     }
 
@@ -34,6 +36,7 @@ enum ProviderID: String, CaseIterable, Identifiable, Sendable {
         case .deepseek: "water.waves"
         case .grok: "xmark.seal"
         case .gemini: "sparkle"
+        case .devin: "d.circle"
         }
     }
 
@@ -48,6 +51,7 @@ enum ProviderID: String, CaseIterable, Identifiable, Sendable {
         case .deepseek: "#59C2F5"
         case .grok: "#C7D2E8"
         case .gemini: "#8AB4F8"
+        case .devin: "#6E5BFF"
         }
     }
 
@@ -249,6 +253,7 @@ enum StatusPercentSource: String, CaseIterable, Identifiable, Sendable {
     case kimi
     case glm
     case deepseek
+    case devin
 
     var id: String { rawValue }
 
@@ -260,6 +265,7 @@ enum StatusPercentSource: String, CaseIterable, Identifiable, Sendable {
         case .kimi: .kimi
         case .glm: .glm
         case .deepseek: .deepseek
+        case .devin: .devin
         }
     }
 
@@ -272,6 +278,7 @@ enum StatusPercentSource: String, CaseIterable, Identifiable, Sendable {
         case .kimi: "Kimi"
         case .glm: "GLM"
         case .deepseek: "DeepSeek"
+        case .devin: "Devin"
         }
     }
 }

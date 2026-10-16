@@ -21,6 +21,7 @@ final class AppModel: ObservableObject {
     private let kimiClient = KimiUsageClient()
     private let glmClient = GlmUsageClient()
     private let antigravityClient = AntigravityUsageClient()
+    private let devinClient = DevinUsageClient()
     private var scheduledRefresh: Task<Void, Never>?
     private var latestRelease: LatestRelease?
 
@@ -376,6 +377,39 @@ final class AppModel: ObservableObject {
             }
         }
 
+        if
+            bundle.devin.isInstalled,
+            !preferences.hiddenProviders.contains(.devin),
+            !preferences.pausedProviders.contains(.devin)
+        {
+            do {
+                let usage = try await devinClient.fetchIfNeeded(
+                    force: forceRemote,
+                    language: currentLanguage
+                )
+                if let index = merged.firstIndex(where: { $0.id == .devin }) {
+                    merged[index].limits = usage.limits
+                    merged[index].lastUpdated = usage.fetchedAt
+                    if !usage.balances.isEmpty {
+                        merged[index].balances = usage.balances
+                    }
+                    merged[index].source = currentLanguage.text(
+                        "Devin 账号额度（GetUserStatus）",
+                        "Devin account quota (GetUserStatus)"
+                    )
+                    if !usage.plan.isEmpty,
+                       !merged[index].detail.localizedCaseInsensitiveContains(usage.plan) {
+                        merged[index].detail = "\(usage.plan) · \(merged[index].detail)"
+                    }
+                }
+            } catch {
+                if let index = merged.firstIndex(where: { $0.id == .devin }) {
+                    merged[index].activity = .needsAttention
+                    merged[index].detail = devinError(error, language: currentLanguage)
+                }
+            }
+        }
+
         snapshots = merged
         lastRefresh = Date()
         isRefreshing = false
@@ -566,5 +600,25 @@ final class AppModel: ObservableObject {
             }
         }
         return language.text("DeepSeek 余额同步失败", "DeepSeek balance sync failed")
+    }
+
+    private func devinError(_ error: Error, language: AppLanguage) -> String {
+        if let clientError = error as? DevinUsageClient.UsageError {
+            switch clientError {
+            case .credentialsMissing, .credentialRejected:
+                return language.text(
+                    "Devin 未登录，请运行 devin auth login",
+                    "Devin is not signed in; run devin auth login"
+                )
+            case .http(let status):
+                return language.text(
+                    "Devin 额度服务返回 HTTP \(status)",
+                    "Devin quota service returned HTTP \(status)"
+                )
+            case .invalidResponse:
+                break
+            }
+        }
+        return language.text("Devin 额度同步失败", "Devin quota sync failed")
     }
 }
