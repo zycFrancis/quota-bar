@@ -824,4 +824,101 @@ import Testing
     #expect(balances[0].compactText == "¥15")
 }
 
+// MARK: - DevinUsageClient
+
+/// 实测 GetUserStatus 响应（脱敏）：Pro 套餐只带周窗，超支余额为负；
+/// dailyQuotaResetAtUnix 存在但日窗百分比缺失，正好覆盖「字段残缺不算窗口」。
+private let devinProStatusFixture = """
+{"userStatus":{"teamsTier":"TEAMS_TIER_DEVIN_PRO","planStatus":{"planInfo":{"teamsTier":"TEAMS_TIER_DEVIN_PRO","planName":"Pro","isDevin":true,"billingStrategy":"BILLING_STRATEGY_QUOTA"},"planStart":"2026-10-16T03:29:04Z","planEnd":"2026-11-16T03:29:04Z","availablePromptCredits":-1,"weeklyQuotaRemainingPercent":46,"overageBalanceMicros":"-148407","dailyQuotaResetAtUnix":"1792224000","weeklyQuotaResetAtUnix":"1792310400"}}}
+"""
+
+@Test func readsDevinWeeklyQuotaFromProFixture() throws {
+    let result = try DevinUsageClient.parseResponse(
+        Data(devinProStatusFixture.utf8),
+        fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+        language: .chinese
+    )
+    #expect(result.limits.count == 1)
+    let weekly = try #require(result.limits.first)
+    #expect(weekly.id == "devin-weekly")
+    #expect(weekly.label == "周额度")
+    #expect(weekly.remainingPercent == 46)
+    #expect(weekly.windowMinutes == 10_080)
+    #expect(weekly.resetAt == Date(timeIntervalSince1970: 1_792_310_400))
+    #expect(result.plan == "Pro")
+}
+
+@Test func readsDevinNegativeOverageBalance() throws {
+    let result = try DevinUsageClient.parseResponse(
+        Data(devinProStatusFixture.utf8),
+        fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+        language: .chinese
+    )
+    #expect(result.balances.count == 1)
+    #expect(result.balances[0].currency == "USD")
+    #expect(result.balances[0].total == Decimal(string: "-0.148407"))
+    #expect(result.balances[0].toppedUp == Decimal(string: "-0.148407"))
+}
+
+@Test func readsDevinDailyAndWeeklyWindows() throws {
+    // 在实测夹具上补一个日窗百分比：部分套餐会同时返回日/周两个窗口。
+    let payload = devinProStatusFixture.replacingOccurrences(
+        of: "\"weeklyQuotaRemainingPercent\":46",
+        with: "\"dailyQuotaRemainingPercent\":72,\"weeklyQuotaRemainingPercent\":46"
+    )
+    let result = try DevinUsageClient.parseResponse(
+        Data(payload.utf8),
+        fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+        language: .chinese
+    )
+    #expect(result.limits.count == 2)
+    #expect(result.limits[0].id == "devin-daily")
+    #expect(result.limits[0].label == "日额度")
+    #expect(result.limits[0].remainingPercent == 72)
+    #expect(result.limits[0].windowMinutes == 1_440)
+    #expect(result.limits[0].resetAt == Date(timeIntervalSince1970: 1_792_224_000))
+    #expect(result.limits[1].id == "devin-weekly")
+    #expect(result.limits[1].windowMinutes == 10_080)
+}
+
+@Test func devinWindowLabelsAreBilingual() throws {
+    let payload = devinProStatusFixture.replacingOccurrences(
+        of: "\"weeklyQuotaRemainingPercent\":46",
+        with: "\"dailyQuotaRemainingPercent\":72,\"weeklyQuotaRemainingPercent\":46"
+    )
+    let result = try DevinUsageClient.parseResponse(
+        Data(payload.utf8),
+        fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+        language: .english
+    )
+    #expect(result.limits.map(\.label) == ["Daily", "Weekly"])
+}
+
+@Test func devinZeroOverageYieldsNoBalance() throws {
+    let payload = """
+    {"userStatus":{"planStatus":{"planInfo":{"planName":"Pro"},"weeklyQuotaRemainingPercent":46,"overageBalanceMicros":"0","weeklyQuotaResetAtUnix":"1792310400"}}}
+    """
+    let result = try DevinUsageClient.parseResponse(
+        Data(payload.utf8),
+        fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+        language: .chinese
+    )
+    #expect(result.balances.isEmpty)
+    #expect(result.limits.count == 1)
+}
+
+@Test func devinMissingPlanStatusThrowsInvalidResponse() {
+    let payload = #"{"userStatus":{"teamsTier":"TEAMS_TIER_DEVIN_PRO"}}"#
+    #expect(throws: { error in
+        guard case DevinUsageClient.UsageError.invalidResponse = error else { return false }
+        return true
+    }) {
+        try DevinUsageClient.parseResponse(
+            Data(payload.utf8),
+            fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
+            language: .chinese
+        )
+    }
+}
+
 

@@ -50,6 +50,7 @@ private enum BrandLogosCache {
     static let deepseek: NSImage = makeImage(svg: deepseekSVG)
     static let grok: NSImage = makeImage(svg: grokSVG)
     static let gemini: NSImage = makeImage(svg: geminiSVG)
+    static let devin: NSImage = makeImage(svg: devinSVG)
 
     static func image(for provider: ProviderID) -> NSImage {
         switch provider {
@@ -60,6 +61,7 @@ private enum BrandLogosCache {
         case .deepseek: deepseek
         case .grok: grok
         case .gemini: gemini
+        case .devin: devin
         }
     }
 
@@ -108,6 +110,12 @@ private enum BrandLogosCache {
       </defs>
       <path fill="url(#geminiGrad)" d="M12 0.5 C12 6.8 6.8 12 0.5 12 C6.8 12 12 17.2 12 23.5 C12 17.2 17.2 12 23.5 12 C17.2 12 12 6.8 12 0.5 Z"/>
     </svg>
+    """
+
+    /// Devin 无公开矢量品牌标，仿 glmSVG 的「圆角方块 + 白字母」自制，
+    /// 字母 D 用外圈 + 内圈双笔画轮廓、evenodd 掏空字腔。
+    private static let devinSVG = """
+    <svg viewBox="0 0 24 24" width="24" height="24" xmlns="http://www.w3.org/2000/svg"><rect x="1" y="1" width="22" height="22" rx="6" fill="#6E5BFF"/><path fill="#FFFFFF" fill-rule="evenodd" d="M7.8 7h4.2a5 5 0 0 1 0 10H7.8z M9.5 8.7h2.4a3.3 3.3 0 0 1 0 6.6H9.5z"/></svg>
     """
 }
 

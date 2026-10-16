@@ -1126,6 +1126,12 @@ private struct AgentSetupPromptSection: View {
                 "DeepSeek", DeepSeekCredentialStore.hasCredential(),
                 "- DeepSeek：创建 ~/.deepseek/credentials.json，内容 {\"api_key\": \"<sk- 开头的 DeepSeek API Key>\"}。"
             ),
+            (
+                "Devin", FileManager.default.fileExists(
+                    atPath: home.appending(path: ".local/share/devin/credentials.toml").path
+                ),
+                "- Devin：安装 Devin CLI 并运行 devin auth login 登录即可。"
+            ),
         ]
     }
 
@@ -1136,7 +1142,7 @@ private struct AgentSetupPromptSection: View {
         lines.append("")
         lines.append("1. 安装应用：从 https://github.com/zycFrancis/quota-bar/releases 下载最新 DMG，把 Quota Bar.app 拖入 /Applications 后启动；若 macOS 提示无法验证开发者，到 系统设置 → 隐私与安全性 点「仍要打开」。")
         if pending.isEmpty {
-            lines.append("2. 本机凭证已齐全（Codex/Claude/GLM/Kimi/DeepSeek 均已检测到），你只需启动应用并核对数据。")
+            lines.append("2. 本机凭证已齐全（Codex/Claude/GLM/Kimi/DeepSeek/Devin 均已检测到），你只需启动应用并核对数据。")
         } else {
             lines.append("2. 我还有以下家未配置，请按指引写入凭证文件（我不提供的 key 直接跳过那一家）：")
             for item in pending where item.name != "Codex" && item.name != "Claude" {

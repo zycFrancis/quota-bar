@@ -10,8 +10,9 @@ struct LocalSnapshotBundle: Sendable {
     var gemini: ProviderSnapshot
     var grok: ProviderSnapshot
     var deepseek: ProviderSnapshot
+    var devin: ProviderSnapshot
 
-    var all: [ProviderSnapshot] { [codex, claude, kimi, glm, gemini, grok, deepseek] }
+    var all: [ProviderSnapshot] { [codex, claude, kimi, glm, gemini, grok, deepseek, devin] }
 }
 
 struct ClaudeDesktopUsage: Sendable {
@@ -32,7 +33,8 @@ enum LocalCollectors {
             glm: collectGlm(language: language),
             gemini: collectGemini(processText: processText, language: language),
             grok: collectGrok(processText: processText, language: language),
-            deepseek: collectDeepSeek(processText: processText, language: language)
+            deepseek: collectDeepSeek(processText: processText, language: language),
+            devin: collectDevin(language: language)
         )
     }
 
@@ -881,6 +883,30 @@ enum LocalCollectors {
             source: source,
             lastUpdated: sessionModified,
             setupAvailable: !keyConfigured,
+            isInstalled: installed
+        )
+    }
+
+    /// Devin：纯远程 provider，无本地会话态可解析；
+    /// 凭据文件存在即视为已安装，额度由 DevinUsageClient 远程拉取。
+    private static func collectDevin(language: AppLanguage) -> ProviderSnapshot {
+        let installed = fm.fileExists(
+            atPath: home.appending(path: ".local/share/devin/credentials.toml").path
+        )
+
+        return ProviderSnapshot(
+            id: .devin,
+            activity: installed ? .idle : .offline,
+            limits: [],
+            detail: installed
+                ? language.text("等待同步 Devin 额度", "Waiting to sync Devin quota")
+                : language.text("未发现 Devin CLI", "Devin CLI not found"),
+            source: language.text(
+                "Devin 账号额度（GetUserStatus）",
+                "Devin account quota (GetUserStatus)"
+            ),
+            lastUpdated: nil,
+            setupAvailable: false,
             isInstalled: installed
         )
     }
