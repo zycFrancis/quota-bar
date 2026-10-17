@@ -909,15 +909,19 @@ private let devinProStatusFixture = """
 
 @Test func devinMissingPlanStatusThrowsInvalidResponse() {
     let payload = #"{"userStatus":{"teamsTier":"TEAMS_TIER_DEVIN_PRO"}}"#
-    #expect(throws: { error in
-        guard case DevinUsageClient.UsageError.invalidResponse = error else { return false }
-        return true
-    }) {
-        try DevinUsageClient.parseResponse(
+    // 谓词闭包版 #expect(throws:) 在 CI 的 swift-testing 版本不存在，
+    // 退回 do/catch + 布尔断言，兼容两端工具链。
+    do {
+        _ = try DevinUsageClient.parseResponse(
             Data(payload.utf8),
             fetchedAt: Date(timeIntervalSince1970: 1_792_310_400),
             language: .chinese
         )
+        Issue.record("parseResponse 应抛 invalidResponse 却正常返回")
+    } catch let error as DevinUsageClient.UsageError {
+        #expect(error == .invalidResponse)
+    } catch {
+        Issue.record("抛出非预期错误：\(error)")
     }
 }
 
