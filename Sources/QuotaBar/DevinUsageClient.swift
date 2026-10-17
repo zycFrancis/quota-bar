@@ -23,7 +23,7 @@ actor DevinUsageClient {
         }
     }
 
-    enum UsageError: LocalizedError {
+    enum UsageError: LocalizedError, Equatable {
         case credentialsMissing
         case credentialRejected
         case http(Int)
