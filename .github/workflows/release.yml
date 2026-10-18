@@ -73,7 +73,8 @@ jobs:
         run: ./scripts/package-release.sh
 
       - name: Upload build artifact
-        # release 发布步骤偶发静默失败；artifact 兜底保证产物总能取回。
+        # publish 曾因 notes 文件名公式漏 v 前缀而必挂（长期被误判为偶发）；
+        # artifact 兜底保证产物总能取回。
         uses: actions/upload-artifact@v4
         with:
           name: quotabar-release
@@ -99,7 +100,7 @@ jobs:
           set -x
           version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)
           tag="v$version"
-          notes_file="RELEASE_NOTES_$version.md"
+          notes_file="RELEASE_NOTES_v$version.md"
           test -f "$notes_file"
           if ! git rev-parse "$tag" >/dev/null 2>&1; then
             git tag "$tag"
