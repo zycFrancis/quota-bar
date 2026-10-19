@@ -746,14 +746,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// 跨空间（全屏 app 前台）时系统可能整段吞掉状态栏的点击（只以 global
     /// 事件可见、不投递本 app）；命中图标区域且短窗内无本地投递时兜底切换弹窗。
     private func handleGloballySeenClick(_ event: NSEvent) {
-        guard
-            event.type == .leftMouseDown,
-            let button = statusItem?.button,
-            let itemWindow = button.window
-        else { return }
-        let frame = itemWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        // global 事件没有可靠的窗口坐标，点击瞬间光标即点击点。
-        guard frame.contains(NSEvent.mouseLocation) else { return }
+        guard event.type == .leftMouseDown, let button = statusItem?.button else { return }
+        // 新菜单栏体系下按钮的 window 是离屏代理，convertToScreen 拿不到
+        // 真实位置；无障碍帧反映合成后的实际屏幕位置。
+        let frame = button.accessibilityFrame()
+        let cursor = NSEvent.mouseLocation
+        qbtrace("hitTest frame=\(frame) cursor=\(cursor)")
+        guard frame.contains(cursor) else { return }
         qbtrace("global click on item, arm fallback")
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
