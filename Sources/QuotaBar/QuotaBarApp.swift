@@ -140,6 +140,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var statusMenu: NSMenu?
     /// 右键状态栏图标的纵向额度下拉面板。
     private var quotaPopover: NSPopover?
+    /// 手动 popUp 菜单（右键分支/自动化）时抑制 menuWillOpen 的左键分流。
+    private var suppressMenuIntercept = false
+    /// 临时诊断：鼠标事件投递路径监视器（排查后移除）。
+    private var localMouseMonitor: Any?
+    private var globalMouseMonitor: Any?
     /// 左键状态栏图标打开的独立设置窗口。
     private var settingsWindow: NSWindow?
     private var refreshMenuItem: NSMenuItem?
@@ -182,6 +187,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             object: nil
         )
         model.start()
+        // 临时诊断：记录鼠标事件以何种路径到达本 app（排查后移除）。
+        localMouseMonitor = NSEvent.addLocalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]
+        ) { [weak self] event in
+            self?.qbtrace("local mouse=\(event.type.rawValue)")
+            return event
+        }
+        globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .leftMouseUp]
+        ) { [weak self] event in
+            self?.qbtrace("global mouse=\(event.type.rawValue)")
+        }
     }
 
     @objc private func showPopoverFromAutomation(_ notification: Notification) {
@@ -192,6 +209,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     @objc private func showMenuFromAutomation(_ notification: Notification) {
         guard let button = statusItem?.button else { return }
         updateMenuTitles()
+        suppressMenuIntercept = true
         statusMenu?.popUp(
             positioning: nil,
             at: NSPoint(x: 0, y: button.bounds.minY - 4),
@@ -200,6 +218,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        if let localMouseMonitor {
+            NSEvent.removeMonitor(localMouseMonitor)
+        }
+        if let globalMouseMonitor {
+            NSEvent.removeMonitor(globalMouseMonitor)
+        }
         DistributedNotificationCenter.default().removeObserver(self)
         if let screenParametersObserver {
             NotificationCenter.default.removeObserver(screenParametersObserver)
@@ -286,9 +310,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             button.image = statusImage
             button.imagePosition = .imageLeading
             button.font = .monospacedDigitSystemFont(ofSize: 11, weight: .semibold)
-            button.target = self
-            button.action = #selector(statusItemClicked(_:))
-            button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
 
         let menu = NSMenu()
@@ -358,6 +379,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         quit.target = self
         menu.addItem(quit)
         statusMenu = menu
+        // macOS 26：活动 app 在其它空间（全屏）时，纯 action 状态项收不到
+        // 点击；挂 menu 交给系统原生接管（跨空间必达），menuWillOpen 再分流。
+        item.menu = menu
         refreshMenuItem = refresh
         updateMenuItem = update
         quitMenuItem = quit
@@ -428,6 +452,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     func menuWillOpen(_ menu: NSMenu) {
         updateMenuTitles()
+        guard menu == statusMenu else { return }
+        if suppressMenuIntercept {
+            suppressMenuIntercept = false
+            return
+        }
+        let type = NSApp.currentEvent?.type
+        qbtrace("menuWillOpen event=\(String(describing: type))")
+        // 左键（任意空间/激活态）：取消菜单，改弹额度 popover
+        if
+            type == .leftMouseDown || type == .leftMouseUp || type == .otherMouseDown,
+            let button = statusItem?.button
+        {
+            menu.cancelTracking()
+            toggleQuotaPopover(from: button)
+        }
+        // 右键或无鼠标事件（自动化/手动 popUp）：正常显示菜单
     }
 
     private func updateMenuTitles() {
@@ -576,6 +616,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         if NSApp.currentEvent?.type == .rightMouseUp {
             // 右键：标准系统菜单（白底实体菜单），含设置入口。
             updateMenuTitles()
+            suppressMenuIntercept = true
             statusMenu?.popUp(
                 positioning: nil,
                 at: NSPoint(x: 0, y: sender.bounds.minY - 4),
