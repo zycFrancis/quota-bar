@@ -145,7 +145,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     private var quotaPanel: NSPanel?
     /// 最近一次以本地事件到达本 app 的鼠标点击时刻（区分系统吞点击）。
     private var lastLocalMouseAt: Date?
-    /// 临时诊断：鼠标事件投递路径监视器（排查后移除）。
+    /// 鼠标事件监视器：承担跨空间点击兜底与面板外点击收起。
     private var localMouseMonitor: Any?
     private var globalMouseMonitor: Any?
     /// 左键状态栏图标打开的独立设置窗口。
@@ -190,12 +190,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             object: nil
         )
         model.start()
-        // 临时诊断：记录鼠标事件以何种路径到达本 app（排查后移除）。
+        // 本地监视器：标记真实到达本 app 的点击（供兜底判据去重），
+        // 并承担面板外点击收起。
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]
         ) { [weak self] event in
             guard let self else { return event }
-            self.qbtrace("local mouse=\(event.type.rawValue)")
             if event.type == .leftMouseDown || event.type == .leftMouseUp {
                 self.lastLocalMouseAt = Date()
             }
@@ -206,7 +206,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             matching: [.leftMouseDown, .leftMouseUp]
         ) { [weak self] event in
             guard let self else { return }
-            self.qbtrace("global mouse=\(event.type.rawValue)")
             self.handleGloballySeenClick(event)
         }
     }
@@ -218,7 +217,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let itemFrame = statusItem?.button?.accessibilityFrame() ?? .zero
         if !panel.frame.contains(cursor), !itemFrame.contains(cursor) {
             panel.orderOut(nil)
-            qbtrace("panel dismissed by outside click")
         }
     }
 
@@ -619,7 +617,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        qbtrace("click type=\(String(describing: NSApp.currentEvent?.type)) isActive=\(NSApp.isActive)")
         if NSApp.currentEvent?.type == .rightMouseUp {
             // 右键：标准系统菜单（白底实体菜单），含设置入口。
             updateMenuTitles()
@@ -696,10 +693,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
     /// 左键：在状态栏图标下方弹出额度下拉面板。
     private func toggleQuotaPopover(from sender: NSStatusBarButton) {
-        qbtrace("toggle entry visible=\(quotaPanel?.isVisible ?? false)")
         if let panel = quotaPanel, panel.isVisible {
             panel.orderOut(nil)
-            qbtrace("panel closed by toggle")
             return
         }
         let content = QuotaPopoverContent(
@@ -751,24 +746,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         }
         panel.setFrameOrigin(origin)
         panel.orderFrontRegardless()
-        qbtrace(
-            "panel shown frame=\(panel.frame) visible=\(panel.isVisible) onActiveSpace=\(panel.isOnActiveSpace)"
-        )
-    }
-
-    /// 临时诊断：统一日志会被隐私重d为 <private>，直写文件排查后移除。
-    private func qbtrace(_ message: String) {
-        NSLog("[QBDBG] %@", message)
-        let line = "\(Date.now.formatted(.iso8601)) [QBDBG] \(message)\n"
-        let url = URL(fileURLWithPath: "/tmp/qbtrace.log")
-        let data = Data(line.utf8)
-        if let handle = try? FileHandle(forWritingTo: url) {
-            defer { try? handle.close() }
-            handle.seekToEndOfFile()
-            try? handle.write(contentsOf: data)
-        } else {
-            try? data.write(to: url)
-        }
     }
 
     /// 跨空间（全屏 app 前台）时系统可能整段吞掉状态栏的点击（只以 global
@@ -780,7 +757,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             let itemFrame = button.accessibilityFrame()
             if !panel.frame.contains(cursor), !itemFrame.contains(cursor) {
                 panel.orderOut(nil)
-                qbtrace("panel dismissed by outside click (global)")
                 return
             }
         }
@@ -788,18 +764,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         // 真实位置；无障碍帧反映合成后的实际屏幕位置。
         let frame = button.accessibilityFrame()
         let cursor = NSEvent.mouseLocation
-        qbtrace("hitTest frame=\(frame) cursor=\(cursor)")
         guard frame.contains(cursor) else { return }
-        qbtrace("global click on item, arm fallback")
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
             guard let self else { return }
             if let last = self.lastLocalMouseAt, Date().timeIntervalSince(last) < 0.5 {
-                self.qbtrace("fallback skipped: local delivery seen")
                 return
             }
             guard let currentButton = self.statusItem?.button else { return }
-            self.qbtrace("fallback firing")
             self.toggleQuotaPopover(from: currentButton)
         }
     }
