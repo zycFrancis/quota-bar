@@ -572,6 +572,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
+        // 临时诊断插桩（排查遮挡场景弹窗不上屏，定位后移除）
+        NSLog("[QBDBG] click type=%@ isActive=%d", String(describing: NSApp.currentEvent?.type), NSApp.isActive ? 1 : 0)
         if NSApp.currentEvent?.type == .rightMouseUp {
             // 右键：标准系统菜单（白底实体菜单），含设置入口。
             updateMenuTitles()
@@ -649,13 +651,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// 右键：在状态栏图标下方弹出各 provider 纵向排列的下拉面板，
     /// 点击面板外任意位置自动收起（transient）。
     private func toggleQuotaPopover(from sender: NSStatusBarButton) {
+        NSLog("[QBDBG] toggle entry shown=%d", quotaPopover?.isShown ?? false)
         if let popover = quotaPopover, popover.isShown {
             popover.performClose(nil)
+            NSLog("[QBDBG] close existing")
             return
         }
         // 未激活状态下 show 的 popover 会被窗口服务留在非活动空间/不上屏
         // （有程序遮挡或全屏空间时点图标"看不到弹窗"），先激活自身再弹。
         NSApp.activate(ignoringOtherApps: true)
+        NSLog("[QBDBG] activated isActive=%d", NSApp.isActive ? 1 : 0)
         let content = QuotaPopoverContent(
             model: model,
             onOpenSettings: { [weak self] in
@@ -680,6 +685,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         )
         quotaPopover = popover
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
+        // 全屏空间保险：popover 窗口默认不加入其它空间，全屏 app 在前台时
+        // 会被留在桌面空间导致"看不见"。
+        popover.contentViewController?.view.window?.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary
+        ]
+        NSLog(
+            "[QBDBG] shown win=%@",
+            String(describing: popover.contentViewController?.view.window?.collectionBehavior)
+        )
     }
 
     private func fourCharacterCode(_ value: String) -> OSType {
