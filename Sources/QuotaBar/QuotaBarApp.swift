@@ -752,7 +752,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             let itemWindow = button.window
         else { return }
         let frame = itemWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        guard frame.contains(event.mouseLocation) else { return }
+        // global 事件没有可靠的窗口坐标，点击瞬间光标即点击点。
+        guard frame.contains(NSEvent.mouseLocation) else { return }
         qbtrace("global click on item, arm fallback")
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
