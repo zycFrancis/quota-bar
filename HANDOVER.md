@@ -1,8 +1,16 @@
 # HANDOVER — quota-bar（zycFrancis fork）
 
-本轮日期：2026-10-08/09。上游 [pumpkinpieuncle/quota-bar](https://github.com/pumpkinpieuncle/quota-bar) v1.4.0。
+本轮日期：2026-10-17~19。上游 [pumpkinpieuncle/quota-bar](https://github.com/pumpkinpieuncle/quota-bar) v1.4.0。
 
 ## 本轮事实
+- **v1.5.11（2026-10-19，跨空间状态栏面板彻底修复，用户已验证）**：症状「前台有程序/全屏 app 时点状态栏图标看不到余额栏，仅空桌面可见」。三层根因（全部插桩实证，诊断工具：/tmp/realclick CGEvent 真实点击 + Swift 直发分布式通知绕开挂起的 notifyutil + 文件级日志绕开统一日志 <private> 重d）：
+  1. macOS 27 在活动 app 位于其它空间（全屏 Chrome 等）时**整段吞掉**第三方状态项点击——事件只进 global monitor（NSEvent.addGlobalMonitorForEvents，无需权限），本地/action/菜单接管均收不到；同空间未激活 app 则正常投递。对策：global monitor 兜底，命中按钮 `accessibilityFrame()`（离屏代理 window 的 convertToScreen 是假坐标，AX 帧才是合成后真实位置）且 200ms 内无本地投递 → 直接 toggle。
+  2. NSPopover 窗口空间被钉死在状态项离屏代理所属的桌面空间，show 后设 canJoinAllSpaces 无效（onActiveSpace 恒 false）。对策：下拉面板改自管 NSPanel（borderless+nonactivatingPanel、level .statusBar、上屏**前**设 [.canJoinAllSpaces, .fullScreenAuxiliary]、hidesOnDeactivate=false、AX 帧定位）。
+  3. show 同瞬间 NSApp.activate 与新状态栏导航场景（NSMenuBarNavigateAction）竞争致 transient popover <300ms 内被系统关闭。对策：不激活。
+  transient 收起语义由 local+global 监视器自实现（面板/图标帧外点击收起）；右键菜单、Dock 点击不变。排查弯路存证：v1.5.10 曾用「activate 再 show」修掉了同空间遮挡场景但没修跨空间（用户验证不通过后深挖）。
+- **发布流水线修复（v1.5.9/v1.5.10）**：publish 步骤 `test -f RELEASE_NOTES_$version.md` 缺 v 前缀，与仓库 v1.4.1 起 `RELEASE_NOTES_v*.md` 命名不符——**v1.4.1 以来每次发版 publish 必挂**，被 continue-on-error 掩盖成「偶发」，历史 release 全靠手动补发。已改公式（`RELEASE_NOTES_v$version.md`）+ 加 set -x + 去 continue-on-error，v1.5.10 起流水线全自动发布验证通过。
+- **v1.5.8（2026-10-17）**：新增第八家 provider **Devin**（Cognition CLI，Connect RPC GetUserStatus，`~/.local/share/devin/credentials.toml` 的 windsurf_api_key，周/日窗、微美元透支余额可负）。多 Agent 协作完成（glm-5.3×2 并行执行 + Lead 验收）。CI 三轮收敛：谓词闭包版 `#expect(throws:)` 在 runner 的 swift-testing 不存在（改 do/catch + Equatable）；新增 ProviderID 必须同步改 Tests 里三处硬编码名单断言（providerOrder/visibleProviderOrder/hiddenProviders）。
+- **PR 流程**：PR #1（auto-rearm→main，rebase 合并）；main 为唯一发版源，auto-rearm 为开发分支（注意：auto-rearm 的 Info.plist 版本号落后 main，其 CI artifact 文件名是旧版本号）。
 - **v1.5.6（2026-10-11 Codex 数据排查）**：用户报 OpenAI 数据不对。排查结论：账号一致（46920d71…）、重新登录后 OpenAI account/rateLimits/read 对 ProLite 仍恒报 primary.usedPercent=0（周窗口），服务端口径失真，CLI 无其他用量端点；顺带发现 rateLimitResetCredits 有 2 张可用重置券。改进：id_token 过期检测（过期→卡片提示 codex login，防失真假数据）+ ProLite 恒 0 时口径说明（以 ChatGPT App 为准）。
 - **v1.5.5 常驻验证（2026-10-10，全自动化）**：分布式通知 `local.quotabar.showMenu` 弹菜单 → AX 点「设置…」开窗 → `/tmp/axclick.swift`（AXUIElement 递归搜索 kAXTitle/kAXDescription 含"模型管理"的按钮并 kAXPressAction）切 tab → 截图 + Vision OCR 五项全命中（一键配置 / 复制 Pr… / "把 Prompt 发给你正在用的主力 agent…" / 胶囊 GLM / 胶囊 Kimi）。结论：一键配置卡片在五家凭证齐全时仍常驻显示，v1.5.5 行为符合预期。截图 `/tmp/setup-card.png`。附带沉淀：SwiftUI 深层嵌套下 AppleScript entire contents 枚举为空，需 AXUIElement 递归；⌘, 快捷键在无 key window 的 app 上不可达，开设置窗走菜单路径最稳。
 - **v1.5.4/v1.5.5**：一键配置卡片 v1.5.4 曾改为仅缺配置时显示，用户要求常驻，v1.5.5 恢复无条件显示；均已发布并装机。
