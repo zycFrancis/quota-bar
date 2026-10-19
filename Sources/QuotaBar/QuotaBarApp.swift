@@ -722,8 +722,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     }
 
     func popoverDidClose(_ notification: Notification) {
-        let reason = (notification.object as? NSPopover)?.closeReason
-        qbtrace("popoverDidClose reason=\(String(describing: reason))")
+        qbtrace("popoverDidClose userInfo=\(notification.userInfo ?? [:])")
     }
 
     private func fourCharacterCode(_ value: String) -> OSType {
