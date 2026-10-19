@@ -134,7 +134,7 @@ final class MenuBarMarqueeView: NSView {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate, NSPopoverDelegate {
     private let model = AppModel()
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
@@ -572,8 +572,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
 
 
     @objc private func statusItemClicked(_ sender: NSStatusBarButton) {
-        // 临时诊断插桩（排查遮挡场景弹窗不上屏，定位后移除）
-        NSLog("[QBDBG] click type=%@ isActive=%d", String(describing: NSApp.currentEvent?.type), NSApp.isActive ? 1 : 0)
+        qbtrace("click type=\(String(describing: NSApp.currentEvent?.type)) isActive=\(NSApp.isActive)")
         if NSApp.currentEvent?.type == .rightMouseUp {
             // 右键：标准系统菜单（白底实体菜单），含设置入口。
             updateMenuTitles()
@@ -651,16 +650,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// 右键：在状态栏图标下方弹出各 provider 纵向排列的下拉面板，
     /// 点击面板外任意位置自动收起（transient）。
     private func toggleQuotaPopover(from sender: NSStatusBarButton) {
-        NSLog("[QBDBG] toggle entry shown=%d", quotaPopover?.isShown ?? false)
+        qbtrace("toggle entry shown=\(quotaPopover?.isShown ?? false)")
         if let popover = quotaPopover, popover.isShown {
             popover.performClose(nil)
-            NSLog("[QBDBG] close existing")
+            qbtrace("close existing")
             return
         }
-        // 未激活状态下 show 的 popover 会被窗口服务留在非活动空间/不上屏
-        // （有程序遮挡或全屏空间时点图标"看不到弹窗"），先激活自身再弹。
-        NSApp.activate(ignoringOtherApps: true)
-        NSLog("[QBDBG] activated isActive=%d", NSApp.isActive ? 1 : 0)
+        // 不做 NSApp.activate：与新状态栏导航场景同瞬间的激活会让
+        // transient popover 立即被系统关闭（遮挡场景点图标"闪没"）；
+        // 跨空间上屏交给下面的 canJoinAllSpaces。
         let content = QuotaPopoverContent(
             model: model,
             onOpenSettings: { [weak self] in
@@ -676,6 +674,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = true
+        popover.delegate = self
         let controller = NSViewController()
         controller.view = hosting
         popover.contentViewController = controller
@@ -685,15 +684,46 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         )
         quotaPopover = popover
         popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        // 全屏空间保险：popover 窗口默认不加入其它空间，全屏 app 在前台时
-        // 会被留在桌面空间导致"看不见"。
-        popover.contentViewController?.view.window?.collectionBehavior = [
-            .canJoinAllSpaces, .fullScreenAuxiliary
-        ]
-        NSLog(
-            "[QBDBG] shown win=%@",
-            String(describing: popover.contentViewController?.view.window?.collectionBehavior)
-        )
+        // popover 窗口默认不加入其它空间，全屏 app 在前台时会被留在
+        // 桌面空间导致"看不见"；orderFrontRegardless 兜底一把。
+        if let window = popover.contentViewController?.view.window {
+            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            if !window.isVisible || !window.isOnActiveSpace {
+                window.orderFrontRegardless()
+            }
+            qbtrace("shown visible=\(window.isVisible) onActiveSpace=\(window.isOnActiveSpace)")
+        } else {
+            qbtrace("shown but no window")
+        }
+    }
+
+    /// 临时诊断：统一日志会被隐私重d为 <private>，直写文件排查后移除。
+    private func qbtrace(_ message: String) {
+        NSLog("[QBDBG] %@", message)
+        let line = "\(Date.now.formatted(.iso8601)) [QBDBG] \(message)\n"
+        let url = URL(fileURLWithPath: "/tmp/qbtrace.log")
+        let data = Data(line.utf8)
+        if let handle = try? FileHandle(forWritingTo: url) {
+            defer { try? handle.close() }
+            handle.seekToEndOfFile()
+            try? handle.write(contentsOf: data)
+        } else {
+            try? data.write(to: url)
+        }
+    }
+
+    /// 临时诊断：popover 生命周期（closeReason 揭示系统为何关闭它）。
+    func popoverWillShow(_ notification: Notification) {
+        qbtrace("popoverWillShow")
+    }
+
+    func popoverDidShow(_ notification: Notification) {
+        qbtrace("popoverDidShow")
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        let reason = (notification.object as? NSPopover)?.closeReason
+        qbtrace("popoverDidClose reason=\(String(describing: reason))")
     }
 
     private func fourCharacterCode(_ value: String) -> OSType {
