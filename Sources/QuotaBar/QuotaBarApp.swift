@@ -134,12 +134,15 @@ final class MenuBarMarqueeView: NSView {
 }
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate, NSPopoverDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWindowDelegate {
     private let model = AppModel()
     private var statusItem: NSStatusItem?
     private var statusMenu: NSMenu?
-    /// 右键状态栏图标的纵向额度下拉面板。
-    private var quotaPopover: NSPopover?
+    /// 状态栏图标下方的纵向额度下拉面板。
+    /// 不用 NSPopover：其窗口空间被锚定在状态项的离屏代理窗口上，
+    /// 跨空间（全屏 app 前台）时永远留在桌面空间；自管 NSPanel 才能
+    /// 在上屏前设定 canJoinAllSpaces。
+    private var quotaPanel: NSPanel?
     /// 最近一次以本地事件到达本 app 的鼠标点击时刻（区分系统吞点击）。
     private var lastLocalMouseAt: Date?
     /// 临时诊断：鼠标事件投递路径监视器（排查后移除）。
@@ -191,10 +194,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         localMouseMonitor = NSEvent.addLocalMonitorForEvents(
             matching: [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp]
         ) { [weak self] event in
-            self?.qbtrace("local mouse=\(event.type.rawValue)")
+            guard let self else { return event }
+            self.qbtrace("local mouse=\(event.type.rawValue)")
             if event.type == .leftMouseDown || event.type == .leftMouseUp {
-                self?.lastLocalMouseAt = Date()
+                self.lastLocalMouseAt = Date()
             }
+            self.dismissPanelIfClickedOutside()
             return event
         }
         globalMouseMonitor = NSEvent.addGlobalMonitorForEvents(
@@ -203,6 +208,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             guard let self else { return }
             self.qbtrace("global mouse=\(event.type.rawValue)")
             self.handleGloballySeenClick(event)
+        }
+    }
+
+    /// 面板外点击收起（transient 语义自实现：图标区域除外，交给 toggle）。
+    private func dismissPanelIfClickedOutside() {
+        guard let panel = quotaPanel, panel.isVisible else { return }
+        let cursor = NSEvent.mouseLocation
+        let itemFrame = statusItem?.button?.accessibilityFrame() ?? .zero
+        if !panel.frame.contains(cursor), !itemFrame.contains(cursor) {
+            panel.orderOut(nil)
+            qbtrace("panel dismissed by outside click")
         }
     }
 
@@ -678,22 +694,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    /// 右键：在状态栏图标下方弹出各 provider 纵向排列的下拉面板，
-    /// 点击面板外任意位置自动收起（transient）。
+    /// 左键：在状态栏图标下方弹出额度下拉面板。
     private func toggleQuotaPopover(from sender: NSStatusBarButton) {
-        qbtrace("toggle entry shown=\(quotaPopover?.isShown ?? false)")
-        if let popover = quotaPopover, popover.isShown {
-            popover.performClose(nil)
-            qbtrace("close existing")
+        qbtrace("toggle entry visible=\(quotaPanel?.isVisible ?? false)")
+        if let panel = quotaPanel, panel.isVisible {
+            panel.orderOut(nil)
+            qbtrace("panel closed by toggle")
             return
         }
-        // 不做 NSApp.activate：与新状态栏导航场景同瞬间的激活会让
-        // transient popover 立即被系统关闭（遮挡场景点图标"闪没"）；
-        // 跨空间上屏交给下面的 canJoinAllSpaces。
         let content = QuotaPopoverContent(
             model: model,
             onOpenSettings: { [weak self] in
-                self?.quotaPopover?.performClose(nil)
+                self?.quotaPanel?.orderOut(nil)
                 self?.openSettingsWindow()
             }
         )
@@ -701,31 +713,47 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
         let width = model.preferences.popoverWidth
         hosting.setFrameSize(NSSize(width: width, height: 0))
         let fitting = hosting.fittingSize
-        let maxHeight = (sender.window?.screen?.visibleFrame.height ?? 900) * 0.72
-        let popover = NSPopover()
-        popover.behavior = .transient
-        popover.animates = true
-        popover.delegate = self
-        let controller = NSViewController()
-        controller.view = hosting
-        popover.contentViewController = controller
-        popover.contentSize = NSSize(
-            width: width,
-            height: min(max(fitting.height, 180), maxHeight)
+        let itemFrame = sender.accessibilityFrame()
+        let screen = NSScreen.screens.first { $0.frame.intersects(itemFrame) }
+            ?? NSScreen.main
+        let maxHeight = (screen?.visibleFrame.height ?? 900) * 0.72
+        let height = min(max(fitting.height, 180), maxHeight)
+
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: height),
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false
         )
-        quotaPopover = popover
-        popover.show(relativeTo: sender.bounds, of: sender, preferredEdge: .minY)
-        // popover 窗口默认不加入其它空间，全屏 app 在前台时会被留在
-        // 桌面空间导致"看不见"；orderFrontRegardless 兜底一把。
-        if let window = popover.contentViewController?.view.window {
-            window.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            if !window.isVisible || !window.isOnActiveSpace {
-                window.orderFrontRegardless()
-            }
-            qbtrace("shown visible=\(window.isVisible) onActiveSpace=\(window.isOnActiveSpace)")
-        } else {
-            qbtrace("shown but no window")
+        panel.isFloatingPanel = true
+        panel.level = .statusBar
+        // 上屏前设定跨空间行为：这是全屏 app 前台也能显示的关键。
+        panel.collectionBehavior = [
+            .canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle
+        ]
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
+        // 本 app 常驻后台不激活，面板绝不能因失活自动隐藏。
+        panel.hidesOnDeactivate = false
+        panel.contentView = hosting
+        quotaPanel = panel
+
+        // 图标正下方（AX 帧与 setFrameOrigin 同为左下原点全局坐标）。
+        let screenFrame = screen?.frame ?? itemFrame
+        var origin = NSPoint(
+            x: itemFrame.midX - width / 2,
+            y: itemFrame.minY - height - 6
+        )
+        origin.x = max(screenFrame.minX + 4, min(origin.x, screenFrame.maxX - width - 4))
+        if origin.y < screenFrame.minY {
+            origin.y = itemFrame.maxY + 6
         }
+        panel.setFrameOrigin(origin)
+        panel.orderFrontRegardless()
+        qbtrace(
+            "panel shown frame=\(panel.frame) visible=\(panel.isVisible) onActiveSpace=\(panel.isOnActiveSpace)"
+        )
     }
 
     /// 临时诊断：统一日志会被隐私重d为 <private>，直写文件排查后移除。
@@ -747,6 +775,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
     /// 事件可见、不投递本 app）；命中图标区域且短窗内无本地投递时兜底切换弹窗。
     private func handleGloballySeenClick(_ event: NSEvent) {
         guard event.type == .leftMouseDown, let button = statusItem?.button else { return }
+        if let panel = quotaPanel, panel.isVisible {
+            let cursor = NSEvent.mouseLocation
+            let itemFrame = button.accessibilityFrame()
+            if !panel.frame.contains(cursor), !itemFrame.contains(cursor) {
+                panel.orderOut(nil)
+                qbtrace("panel dismissed by outside click (global)")
+                return
+            }
+        }
         // 新菜单栏体系下按钮的 window 是离屏代理，convertToScreen 拿不到
         // 真实位置；无障碍帧反映合成后的实际屏幕位置。
         let frame = button.accessibilityFrame()
@@ -765,19 +802,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             self.qbtrace("fallback firing")
             self.toggleQuotaPopover(from: currentButton)
         }
-    }
-
-    /// 临时诊断：popover 生命周期（closeReason 揭示系统为何关闭它）。
-    func popoverWillShow(_ notification: Notification) {
-        qbtrace("popoverWillShow")
-    }
-
-    func popoverDidShow(_ notification: Notification) {
-        qbtrace("popoverDidShow")
-    }
-
-    func popoverDidClose(_ notification: Notification) {
-        qbtrace("popoverDidClose userInfo=\(notification.userInfo ?? [:])")
     }
 
     private func fourCharacterCode(_ value: String) -> OSType {
