@@ -653,6 +653,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate, NSWind
             popover.performClose(nil)
             return
         }
+        // 未激活状态下 show 的 popover 会被窗口服务留在非活动空间/不上屏
+        // （有程序遮挡或全屏空间时点图标"看不到弹窗"），先激活自身再弹。
+        NSApp.activate(ignoringOtherApps: true)
         let content = QuotaPopoverContent(
             model: model,
             onOpenSettings: { [weak self] in
